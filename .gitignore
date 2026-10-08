@@ -1,0 +1,23 @@
+# .NET build output
+[Bb]in/
+[Oo]bj/
+.vs/
+TestResults/
+coverage/
+artifacts/
+publish/
+*.trx
+*.coverage
+*.coveragexml
+*.user
+*.suo
+
+# Local environment secrets
+.env
+.env.*
+!.env.example
+
+# Logs and operating system files
+*.log
+.DS_Store
+Thumbs.db

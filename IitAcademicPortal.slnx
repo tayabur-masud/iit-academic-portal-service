@@ -1,0 +1,11 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/IitAcademicPortal.Api/IitAcademicPortal.Api.csproj" />
+    <Project Path="src/IitAcademicPortal.Application/IitAcademicPortal.Application.csproj" />
+    <Project Path="src/IitAcademicPortal.Domain/IitAcademicPortal.Domain.csproj" />
+    <Project Path="src/IitAcademicPortal.Infrastructure/IitAcademicPortal.Infrastructure.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/IitAcademicPortal.Api.Tests/IitAcademicPortal.Api.Tests.csproj" />
+  </Folder>
+</Solution>

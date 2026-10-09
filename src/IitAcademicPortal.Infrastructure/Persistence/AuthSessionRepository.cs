@@ -7,7 +7,7 @@ namespace IitAcademicPortal.Infrastructure.Persistence;
 
 public sealed class AuthSessionRepository(PortalDbContext db) : IAuthSessionRepository
 {
-    public async Task<SessionSnapshot?> TouchActiveByDigestAsync(
+    public async Task<SessionTouchResult> TouchActiveByDigestAsync(
         string handleDigest, DateTimeOffset now, CancellationToken cancellationToken)
     {
         var matchingSession = db.AuthSessions
@@ -19,15 +19,27 @@ public sealed class AuthSessionRepository(PortalDbContext db) : IAuthSessionRepo
 
         if (touched == 0)
         {
-            await matchingSession
+            // Identify the idle session first so its revocation can be reported to the caller for auditing.
+            var idle = await matchingSession
                 .Where(s => s.LastActivityAt <= idleCutoff)
+                .Select(s => new { s.Id, s.UserId })
+                .FirstOrDefaultAsync(cancellationToken);
+            if (idle is null)
+            {
+                return new SessionTouchResult(null, null);
+            }
+
+            var revoked = await matchingSession
+                .Where(s => s.Id == idle.Id && s.LastActivityAt <= idleCutoff)
                 .ExecuteUpdateAsync(setters => setters
                     .SetProperty(s => s.RevokedAt, now)
                     .SetProperty(s => s.RevocationReason, SessionRevocationReason.IdleTimeout), cancellationToken);
-            return null;
+
+            // Only the request that actually revoked the session reports it, so one timeout yields one event.
+            return new SessionTouchResult(null, revoked == 1 ? new IdleRevokedSession(idle.Id, idle.UserId) : null);
         }
 
-        return await FindActiveAsync(s => s.HandleDigest == handleDigest, cancellationToken);
+        return new SessionTouchResult(await FindActiveAsync(s => s.HandleDigest == handleDigest, cancellationToken), null);
     }
 
     public Task<SessionSnapshot?> FindActiveByIdAsync(Guid sessionId, CancellationToken cancellationToken) =>

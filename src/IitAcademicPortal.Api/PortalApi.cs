@@ -1,9 +1,13 @@
+using System.Net;
 using System.Text.Json.Serialization;
+using IitAcademicPortal.Api.Auditing;
 using IitAcademicPortal.Api.Authentication;
 using IitAcademicPortal.Api.Authorization;
 using IitAcademicPortal.Api.Security;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.HttpOverrides;
+using IitAcademicPortal.Application.Abstractions;
 
 namespace IitAcademicPortal.Api;
 
@@ -34,11 +38,38 @@ public static class PortalApi
 
         services.AddPortalRateLimiting(configuration);
         services.AddOpenApi();
+
+        services.AddHttpContextAccessor();
+        services.AddScoped<IAuditRequestContext, AuditRequestContext>();
+        services.AddAuditHealth();
+
+        // The audit source is the client IP. Forwarded headers are honored only from the configured proxies;
+        // with none configured, the source is the direct connection address and no client header is trusted.
+        var knownProxies = configuration.GetSection("ForwardedHeaders:KnownProxies").Get<string[]>() ?? [];
+        if (knownProxies.Length > 0)
+        {
+            services.Configure<ForwardedHeadersOptions>(options =>
+            {
+                options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+                options.ForwardLimit = 1;
+                foreach (var proxy in knownProxies)
+                {
+                    options.KnownProxies.Add(IPAddress.Parse(proxy));
+                }
+            });
+        }
+
         return services;
     }
 
     public static WebApplication UsePortalApi(this WebApplication app)
     {
+        // Must run first so every later component sees the real client address.
+        if (app.Configuration.GetSection("ForwardedHeaders:KnownProxies").Get<string[]>() is { Length: > 0 })
+        {
+            app.UseForwardedHeaders();
+        }
+
         // Centralized errors: user-safe problem responses, never stack traces outside Development.
         app.UseExceptionHandler();
         app.UseStatusCodePages();
@@ -100,6 +131,7 @@ public static class PortalApi
         app.UseAuthorization();
 
         app.MapControllers();
+        app.MapAuditHealth();
         if (app.Environment.IsDevelopment())
         {
             app.MapOpenApi().AllowAnonymous();

@@ -17,6 +17,12 @@ public static class PortalPolicies
     public const string TeacherModule = "TeacherModule";
     public const string CoordinatorModule = "CoordinatorModule";
 
+    /// <summary>
+    /// Review of audit history: the session's active role must be Admin. Only the active role is issued as a role
+    /// claim, so an Admin assignment held in another active role does not qualify.
+    /// </summary>
+    public const string AuditReview = "AuditReview";
+
     /// <summary>Use with <c>IAuthorizationService.AuthorizeAsync(User, record, RecordAccess)</c>.</summary>
     public const string RecordAccess = "RecordAccess";
 
@@ -26,6 +32,7 @@ public static class PortalPolicies
             .RequireAuthenticatedUser()
             .Build())
         .AddPolicy(AdminModule, p => p.RequireAuthenticatedUser().RequireRole(PortalRoles.Admin))
+        .AddPolicy(AuditReview, p => p.RequireAuthenticatedUser().RequireRole(PortalRoles.Admin))
         .AddPolicy(StudentModule, p => p.RequireAuthenticatedUser().RequireRole(PortalRoles.Student))
         .AddPolicy(TeacherModule, p => p.RequireAuthenticatedUser().RequireRole(PortalRoles.Teacher))
         .AddPolicy(CoordinatorModule, p => p.RequireAuthenticatedUser().RequireRole(PortalRoles.Coordinator))

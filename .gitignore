@@ -24,3 +24,6 @@ Thumbs.db
 
 # Development email sink
 .mail/
+
+# Development security-event fallback sink
+.audit-fallback/

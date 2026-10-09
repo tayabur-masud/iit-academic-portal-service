@@ -14,6 +14,11 @@ public sealed class ValidateAntiforgeryTokenFilter(IAntiforgery antiforgery, Pro
 {
     public async Task OnAuthorizationAsync(AuthorizationFilterContext context)
     {
+        if (context.ActionDescriptor.EndpointMetadata.OfType<SkipAntiforgeryValidationAttribute>().Any())
+        {
+            return;
+        }
+
         var method = context.HttpContext.Request.Method;
         if (HttpMethods.IsGet(method) || HttpMethods.IsHead(method) || HttpMethods.IsOptions(method) || HttpMethods.IsTrace(method))
         {

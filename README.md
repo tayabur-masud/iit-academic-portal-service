@@ -6,9 +6,9 @@ Identity 10, EF Core 10, and PostgreSQL 18 through Npgsql 10.x.
 | Project | Layer |
 |---|---|
 | `src/IitAcademicPortal.Domain` | Entities and rules with no infrastructure: `PortalUser`, `PortalRoles`, `AuthSession`, record-boundary interfaces |
-| `src/IitAcademicPortal.Application` | Use cases: sign-in and session state, password recovery, password policy, record-access rules |
-| `src/IitAcademicPortal.Infrastructure` | EF Core `PortalDbContext`, migrations, session repository, SMTP email, recovery queue |
-| `src/IitAcademicPortal.Api` | Thin controllers, session-cookie authentication, anti-forgery, policies, rate limiting, problem details |
+| `src/IitAcademicPortal.Application` | Use cases: sign-in and session state, password recovery, password policy, record-access rules, audit recording and review |
+| `src/IitAcademicPortal.Infrastructure` | EF Core `PortalDbContext`, migrations, session repository, SMTP email, recovery queue, audit store, security-event outbox worker and fallback sink |
+| `src/IitAcademicPortal.Api` | Thin controllers, session-cookie authentication, anti-forgery, policies, rate limiting, problem details, audit review endpoints and health check |
 | `tests/IitAcademicPortal.Api.Tests` | xUnit API tests over the real pipeline (in-memory SQLite) plus unit tests |
 
 ## Development
@@ -23,8 +23,10 @@ has a `UserSecretsId`, so secrets stay on your machine, outside the repository.
 dotnet user-secrets --project src/IitAcademicPortal.Api set "ConnectionStrings:Portal" "Host=localhost;Port=5432;Database=iit_academic_portal;Username=postgres;Password=<password>"
 ```
 
-**2. Create or upgrade the database.** `dotnet ef` uses the same configuration as the API, and creates the
-database if it does not exist.
+**2. Create or upgrade the database.** `dotnet ef` connects with `ConnectionStrings:PortalMigrations` when it is
+set (the schema-owner account) and otherwise falls back to `ConnectionStrings:Portal`, so a single local
+`postgres` account keeps working in Development. It creates the database if it does not exist.
+Deployments use two accounts; see [Database accounts](#database-accounts).
 
 ```powershell
 dotnet tool restore
@@ -90,7 +92,11 @@ AND    EXISTS (SELECT 1 FROM "AspNetUserRoles" ur JOIN "AspNetRoles" r ON r."Id"
 | `PasswordRecovery:ResetPageUrl` | Absolute URL of the frontend reset page; required at startup |
 | `PasswordRecovery:ProofLifespan` | How long a recovery proof stays valid (default `01:00:00`) |
 | `Smtp:*` | `Host`, `Port`, `EnableSsl`, `UserName`, `Password`, `FromAddress`; or `PickupDirectory` for a local sink |
+| `ConnectionStrings:PortalMigrations` | Schema-owner connection used only by `dotnet ef`; the API never uses it |
 | `RateLimiting:Authentication:*` | Per-client `PermitLimit` and `Window` for sign-in and recovery (default 10 per minute) |
+| `ForwardedHeaders:KnownProxies` | IP addresses of trusted reverse proxies. Only requests from these proxies may supply the client address (see below) |
+| `AuditFallback:Sink`, `AuditFallback:Directory` | Durable sink for security events whose outbox write failed. Required outside Development (see below) |
+| `AuditDelivery:*` | Outbox worker: `WorkerEnabled`, `PollInterval`, `BatchSize`, `MaxAttempts` (8), `BaseRetryDelay`, `MaxRetryDelay`, `LeaseDuration` |
 
 ## Authentication model
 
@@ -110,8 +116,139 @@ AND    EXISTS (SELECT 1 FROM "AspNetUserRoles" ur JOIN "AspNetRoles" r ON r."Id"
   Record access uses `IAuthorizationService.AuthorizeAsync(User, record, PortalPolicies.RecordAccess)` with
   records that implement `IStudentOwnedRecord`, `ITeacherAssignedRecord`, or `ICoordinatorAssignedRecord`.
 
+## Audit
+
+The service records important events as append-only audit history, and Admins review it at `GET /api/audit-events`
+(search) and `GET /api/audit-events/{eventId}` (detail). Both require the **active** Admin role; `/admin/audit` in
+the frontend uses them. Contract: `specs/002-audit-system/contracts/audit.openapi.json`.
+
+- **Business events** are written in the same transaction as the business change, so both commit or neither does.
+- **Security events** (sign-in, sign-out and revocation, password reset, role switch, 403 denials, audit reads and
+  attempted audit changes) go through a PostgreSQL outbox and a background worker, so a failure never changes
+  the response a user gets.
+- Anonymous 401 responses are counted (`audit.anonymous_unauthorized`), not recorded.
+- `POST`, `PUT`, `PATCH`, and `DELETE` on the audit routes return `405` with `Allow: GET` and are recorded.
+- Events never contain passwords, reset proofs, tokens, cookies, session handles, or non-approved personal
+  values. The source is the client IP, taken only from trusted forwarded headers.
+
+### Forwarded headers
+
+Behind a reverse proxy, list its address so the audit source and rate limiting see the real client:
+
+```json
+"ForwardedHeaders": { "KnownProxies": ["10.0.0.5"] }
+```
+
+Without a known proxy, forwarded headers are ignored and the source is the direct connection address, so a client
+cannot invent its own address.
+
+### Database accounts
+
+Use two PostgreSQL accounts outside local development:
+
+| Account | Used by | Connection string | Rights |
+|---|---|---|---|
+| Schema owner | `dotnet ef` and the scripts below | `ConnectionStrings:PortalMigrations` | Owns the tables |
+| Runtime role | the API | `ConnectionStrings:Portal` | Reads and writes data; audit events are `SELECT` and `INSERT` only; no `DELETE` on the outbox |
+
+After the migrations, as the schema owner (the runtime role must not own any table):
+
+```powershell
+dotnet ef database update -p src/IitAcademicPortal.Infrastructure -s src/IitAcademicPortal.Api
+psql -v runtime_role=iit_portal_app -d iit_academic_portal -f database/postgresql/runtime-grants.sql
+psql -d iit_academic_portal -f database/postgresql/audit-outbox-recovery.sql
+```
+
+`runtime-grants.sql` also sets default privileges, so tables created by later migrations work without another
+grant. Re-running it is safe. The PostgreSQL tests (`AUDIT_TEST_POSTGRES` set to an administrator connection
+string) build a disposable database, apply these scripts, and prove the permissions; they are skipped without it.
+
+### Durable fallback sink
+
+If the outbox write itself fails, the event is written to a durable sink instead and a critical alert is logged.
+Outside Development the service **refuses to start** unless the sink is configured; console logging is not durable.
+
+```json
+"AuditFallback": { "Sink": "File", "Directory": "/var/lib/iit-portal/audit-fallback" }
+```
+
+The `File` sink appends JSON lines (one safe event envelope per line) to that folder. Use a persistent volume.
+Development uses `.audit-fallback/` next to the API (ignored by git).
+
+### Recovering exhausted security events
+
+When delivery fails `AuditDelivery:MaxAttempts` times, the item is kept as `Exhausted` (never discarded) and
+`/health/audit` reports it. An authorized operator, connected as the schema owner, either puts the items back in
+the queue or marks them dealt with, always with an operator ID and a reason:
+
+```sql
+SELECT audit_outbox_recover('retry',   '<operator user id>', '<why>');
+SELECT audit_outbox_recover('handled', '<operator user id>', '<why>', '<event id>');  -- one event
+```
+
+It returns the number of items changed, only touches `Exhausted` items, and never changes formal audit events.
+The runtime role cannot run it.
+
+### Monitoring and alerts
+
+| Signal | Where | Meaning |
+|---|---|---|
+| `audit.outbox.write_failures` | meter `IitAcademicPortal.Audit` | A security event could not be queued; the fallback sink was used |
+| `audit.outbox.retry_exhausted` | same | An outbox item used every attempt |
+| `audit.fallback.failures` | same | The fallback sink also failed |
+| `audit.event_loss_risk` | same | An event may have been lost: alert immediately |
+| `audit.anonymous_unauthorized` | same | Anonymous 401 responses (not audited as events) |
+| Critical structured logs | application logs | One per failure above; they carry the exception type, never its message or payload |
+| `GET /health/audit` | HTTP | Admin-only; `503` while any item is `Exhausted` |
+
+Export the meter (for example, with OpenTelemetry) and route alerts on the first four signals to the protected
+destination the deployment owner chooses. Alerting never writes another audit event.
+
+### Retention
+
+Nothing in the service deletes, archives, or rewrites audit events, and the runtime role cannot. Any future
+lifecycle job needs an approved retention policy first. Delivered outbox rows are working state, not audit
+retention.
+
+### Audit integration for feature owners
+
+Each feature records its own events as it is built. Nothing is captured automatically, and there is no public
+endpoint for writing events.
+
+1. **Declare the event** in your feature, next to its use case, with the changed fields whose values may be
+   recorded:
+
+   ```csharp
+   public static readonly AuditEventDefinition StudentUpdated =
+       AuditEventDefinition.Business("student.updated", "status", "programme");
+   ```
+
+   Fields not listed are omitted, or recorded as "changed" when you use `WithChangeIndicators`. The secret guard
+   still masks credential-like names and token-like values even in allowlisted fields.
+2. **Stage a business event in the same unit of work** as the change, then save once:
+
+   ```csharp
+   recorder.Stage(new AuditEventRequest(StudentUpdated, AuditOutcome.Success)
+   {
+       EntityType = "Student",
+       EntityId = student.Id.ToString(),
+       Changes = [new AuditFieldChange("status", oldStatus, newStatus)],
+   });
+   await db.SaveChangesAsync();   // the change and its event commit together or not at all
+   ```
+
+   The actor, correlation ID, and source come from the request, never from client input.
+3. **Record a security event** with `await recorder.RecordSecurityAsync(...)`. It never throws and never changes
+   the response.
+4. Keep metadata small (4 KB) and free of personal data you do not need; change summaries are limited to 16 KB.
+
 ## Deployment notes
 
 - Persist the ASP.NET Core Data Protection key ring, for example to shared storage. Recovery proofs and
   anti-forgery tokens depend on it. Session cookies do not.
-- Behind a reverse proxy, configure forwarded headers so rate limiting partitions by the real client address.
+- Behind a reverse proxy, set `ForwardedHeaders:KnownProxies` so rate limiting and the audit source use the real
+  client address.
+- Decided (2026-10-09): production uses the `File` fallback sink on a persistent volume, and 1,000,000 events is the
+  confirmed volume for the search target. Console logging does not meet the durable-sink requirement.
+- **Still to decide before go-live**: the protected alert destination for the audit signals and the person
+  authorized to recover exhausted security events.

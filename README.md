@@ -32,7 +32,7 @@ dotnet ef database update -p src/IitAcademicPortal.Infrastructure -s src/IitAcad
 ```
 
 **3. Test accounts (optional, Development only).** Set a password; the accounts are created the next time the
-API starts. Existing accounts are skipped.
+API starts. Existing accounts are left as they are, except that one without a default role gets one.
 
 ```powershell
 dotnet user-secrets --project src/IitAcademicPortal.Api set "DevelopmentSeed:Password" "<8+ chars with a letter and a number>"
@@ -65,7 +65,22 @@ Seeded development accounts, all using the `DevelopmentSeed:Password` value:
 | `student.personal@example.test` | Student |
 | `teacher@iit.test` | Teacher |
 | `coordinator@iit.test` | Coordinator |
-| `teacher.coordinator@iit.test` | Teacher and Coordinator (starts with no active role; choose one with `PUT /api/auth/sessions/current/active-role`) |
+| `teacher.coordinator@iit.test` | Teacher and Coordinator; default role Teacher (switch with `PUT /api/auth/sessions/current/active-role`) |
+
+### Changing an account's default role
+
+Until administrator user management exists, set `AspNetUsers.DefaultRole` directly in SQL. The value must be
+`Admin`, `Student`, `Teacher`, or `Coordinator`, matching capitalization, and one of the account's assigned
+roles; otherwise sign-in falls back to the order Admin, Coordinator, Teacher, Student. `NULL` also means
+"use the fallback". The change applies at the user's next sign-in, and the seeder never overwrites it.
+
+```sql
+UPDATE "AspNetUsers" u
+SET    "DefaultRole" = 'Coordinator'
+WHERE  u."NormalizedEmail" = UPPER('teacher.coordinator@iit.test')
+AND    EXISTS (SELECT 1 FROM "AspNetUserRoles" ur JOIN "AspNetRoles" r ON r."Id" = ur."RoleId"
+               WHERE ur."UserId" = u."Id" AND r."Name" = 'Coordinator');
+```
 
 ## Configuration
 
@@ -85,9 +100,11 @@ Seeded development accounts, all using the `DevelopmentSeed:Password` value:
 - Every request checks the session server-side: it must not be revoked, and its active role must still be
   assigned to the account. Only the active role is issued as a role claim, so a multi-role user never gets the
   union of their roles.
-- **Sessions have no idle or maximum-age timeout.** This is an approved residual risk (see the feature's
-  implementation notes). Sign-out revokes only the current session; a password reset revokes only the session
-  that performed it.
+- **Sessions end after three hours without authenticated activity.** Each authenticated request refreshes the
+  window, and an idle session is revoked on its next use. Sign-out revokes only the current session; a password
+  reset revokes only the session that performed it.
+- Each session starts in the account's default role (`AspNetUsers.DefaultRole` while assigned, otherwise the
+  first assigned role in the order Admin, Coordinator, Teacher, Student).
 - State-changing requests need the `X-CSRF-Token` header from `GET /api/auth/anti-forgery-token`.
 - Module access uses the `AdminModule`, `StudentModule`, `TeacherModule`, and `CoordinatorModule` policies.
   Record access uses `IAuthorizationService.AuthorizeAsync(User, record, PortalPolicies.RecordAccess)` with

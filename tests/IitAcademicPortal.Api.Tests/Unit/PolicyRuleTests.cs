@@ -48,3 +48,16 @@ public sealed class RecordAccessRulesTests
     public void Admin_has_no_record_boundary_access() =>
         Assert.False(RecordAccessRules.CanAccess(PortalRoles.Admin, "a1", new Result("a1", ["a1"])));
 }
+
+public sealed class DefaultRoleTests
+{
+    [Theory]
+    [InlineData(new[] { PortalRoles.Teacher, PortalRoles.Coordinator }, PortalRoles.Teacher, PortalRoles.Teacher)]
+    [InlineData(new[] { PortalRoles.Teacher, PortalRoles.Coordinator }, null, PortalRoles.Coordinator)]
+    [InlineData(new[] { PortalRoles.Teacher, PortalRoles.Coordinator }, PortalRoles.Admin, PortalRoles.Coordinator)]
+    [InlineData(new[] { PortalRoles.Student, PortalRoles.Admin }, null, PortalRoles.Admin)]
+    [InlineData(new[] { PortalRoles.Student }, null, PortalRoles.Student)]
+    [InlineData(new string[0], PortalRoles.Teacher, null)]
+    public void Uses_the_stored_default_while_assigned_otherwise_the_fixed_order(string[] assigned, string? stored, string? expected) =>
+        Assert.Equal(expected, PortalRoles.ResolveDefault(assigned, stored));
+}

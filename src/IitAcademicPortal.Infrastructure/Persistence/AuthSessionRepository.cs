@@ -37,7 +37,8 @@ public sealed class AuthSessionRepository(PortalDbContext db) : IAuthSessionRepo
 
     public Task SaveChangesAsync(CancellationToken cancellationToken) => db.SaveChangesAsync(cancellationToken);
 
-    // One round trip: the session plus the account's current role names, read on every protected request.
+    // One round trip: the session plus the account's current role names and default role, read on every
+    // protected request.
     private async Task<SessionSnapshot?> FindActiveAsync(
         Expression<Func<AuthSession, bool>> predicate, CancellationToken cancellationToken)
     {
@@ -51,9 +52,10 @@ public sealed class AuthSessionRepository(PortalDbContext db) : IAuthSessionRepo
                     .Where(ur => ur.UserId == s.UserId)
                     .Join(db.Roles, ur => ur.RoleId, r => r.Id, (_, r) => r.Name!)
                     .ToList(),
+                DefaultRole = db.Users.Where(u => u.Id == s.UserId).Select(u => u.DefaultRole).FirstOrDefault(),
             })
             .SingleOrDefaultAsync(cancellationToken);
 
-        return row is null ? null : new SessionSnapshot(row.Session, row.Roles);
+        return row is null ? null : new SessionSnapshot(row.Session, row.Roles, row.DefaultRole);
     }
 }

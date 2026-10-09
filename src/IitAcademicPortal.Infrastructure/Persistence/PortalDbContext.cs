@@ -26,6 +26,7 @@ public class PortalDbContext(DbContextOptions<PortalDbContext> options) : Identi
 
         // Email is the sign-in identifier, so a normalized email must resolve to exactly one account.
         builder.Entity<PortalUser>().HasIndex(u => u.NormalizedEmail).HasDatabaseName("EmailIndex").IsUnique();
+        builder.Entity<PortalUser>().Property(u => u.DefaultRole).HasMaxLength(32);
 
         builder.Entity<IdentityRole>().HasData(RoleCatalog.Select(r => new IdentityRole
         {

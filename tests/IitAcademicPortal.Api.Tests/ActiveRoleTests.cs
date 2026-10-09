@@ -1,17 +1,20 @@
 using System.Net;
-using System.Text.Json;
 using IitAcademicPortal.Api.Tests.Infrastructure;
 using IitAcademicPortal.Domain.Identity;
 
 namespace IitAcademicPortal.Api.Tests;
 
-/// <summary>US4: selecting and switching among assigned roles, per session, without a union of roles.</summary>
+/// <summary>
+/// US4: multi-role accounts enter their default role at sign-in, then switch among assigned roles per session
+/// without a union of roles.
+/// </summary>
 public sealed class ActiveRoleTests(PortalApiFactory factory) : IClassFixture<PortalApiFactory>
 {
     [Fact]
-    public async Task Multi_role_account_starts_without_an_active_role_and_only_assigned_choices()
+    public async Task Multi_role_account_signs_in_directly_to_its_stored_default_role()
     {
         var email = await CreateTeacherCoordinatorAsync();
+        await factory.SetDefaultRoleAsync(email, PortalRoles.Teacher);
         using var client = factory.CreatePortalClient();
 
         var context = await PortalClient.ReadJsonAsync(await client.SignInAsync(email));
@@ -19,9 +22,26 @@ public sealed class ActiveRoleTests(PortalApiFactory factory) : IClassFixture<Po
         Assert.Equal(
             [PortalRoles.Teacher, PortalRoles.Coordinator],
             context.GetProperty("availableRoles").EnumerateArray().Select(r => r.GetString()));
-        Assert.Equal(JsonValueKind.Null, context.GetProperty("activeRole").ValueKind);
-        Assert.Equal(HttpStatusCode.Forbidden, (await client.GetAsync("/test-probe/modules/teacher")).StatusCode);
+        Assert.Equal(PortalRoles.Teacher, context.GetProperty("activeRole").GetString());
+        Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/test-probe/modules/teacher")).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, (await client.GetAsync("/test-probe/modules/coordinator")).StatusCode);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData(PortalRoles.Admin)] // stored default that is not (or no longer) assigned
+    public async Task Without_a_valid_stored_default_the_fixed_order_picks_the_role(string? storedDefault)
+    {
+        var email = await CreateTeacherCoordinatorAsync();
+        await factory.SetDefaultRoleAsync(email, storedDefault);
+        using var client = factory.CreatePortalClient();
+
+        var context = await PortalClient.ReadJsonAsync(await client.SignInAsync(email));
+
+        // Order: Admin, Coordinator, Teacher, Student.
+        Assert.Equal(PortalRoles.Coordinator, context.GetProperty("activeRole").GetString());
+        Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/test-probe/modules/coordinator")).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await client.GetAsync("/test-probe/modules/teacher")).StatusCode);
     }
 
     [Fact]
@@ -87,19 +107,20 @@ public sealed class ActiveRoleTests(PortalApiFactory factory) : IClassFixture<Po
     }
 
     [Fact]
-    public async Task Removed_active_role_is_dropped_from_the_session_context()
+    public async Task Removed_active_role_falls_back_to_the_default_among_remaining_roles()
     {
         var email = await CreateTeacherCoordinatorAsync();
+        await factory.SetDefaultRoleAsync(email, PortalRoles.Teacher);
         using var client = factory.CreatePortalClient();
         await client.SignInSuccessfullyAsync(email);
-        await client.SetActiveRoleAsync(PortalRoles.Teacher);
 
         await factory.RemoveRoleAsync(email, PortalRoles.Teacher);
 
         var context = await PortalClient.ReadJsonAsync(await client.GetCurrentSessionAsync());
         Assert.Equal([PortalRoles.Coordinator], context.GetProperty("availableRoles").EnumerateArray().Select(r => r.GetString()));
-        Assert.Equal(JsonValueKind.Null, context.GetProperty("activeRole").ValueKind);
+        Assert.Equal(PortalRoles.Coordinator, context.GetProperty("activeRole").GetString());
         Assert.Equal(HttpStatusCode.Forbidden, (await client.GetAsync("/test-probe/modules/teacher")).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/test-probe/modules/coordinator")).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, (await client.SetActiveRoleAsync(PortalRoles.Teacher)).StatusCode);
     }
 

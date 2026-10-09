@@ -31,7 +31,7 @@ public class AuthSession
 
     public string UserId { get; private set; } = string.Empty;
 
-    /// <summary>Null only while a multi-role user has not yet chosen a role.</summary>
+    /// <summary>Starts as the account's default role; null only when the account has no supported role.</summary>
     public string? ActiveRole { get; private set; }
 
     public DateTimeOffset CreatedAt { get; private set; }

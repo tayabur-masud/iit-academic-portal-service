@@ -3,6 +3,7 @@ using IitAcademicPortal.Domain.Sessions;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 namespace IitAcademicPortal.Infrastructure.Persistence;
 
@@ -25,6 +26,7 @@ public class PortalDbContext(DbContextOptions<PortalDbContext> options) : Identi
 
         // Email is the sign-in identifier, so a normalized email must resolve to exactly one account.
         builder.Entity<PortalUser>().HasIndex(u => u.NormalizedEmail).HasDatabaseName("EmailIndex").IsUnique();
+        builder.Entity<PortalUser>().Property(u => u.DefaultRole).HasMaxLength(32);
 
         builder.Entity<IdentityRole>().HasData(RoleCatalog.Select(r => new IdentityRole
         {
@@ -45,6 +47,11 @@ public class PortalDbContext(DbContextOptions<PortalDbContext> options) : Identi
             session.HasOne<PortalUser>().WithMany().HasForeignKey(s => s.UserId).OnDelete(DeleteBehavior.Cascade);
             session.Property(s => s.ActiveRole).HasMaxLength(32);
             session.Property(s => s.CreatedAt).IsRequired();
+            session.Property(s => s.LastActivityAt)
+                .HasConversion(new ValueConverter<DateTimeOffset, long>(
+                    value => value.UtcDateTime.Ticks,
+                    ticks => new DateTimeOffset(ticks, TimeSpan.Zero)))
+                .IsRequired();
             session.Property(s => s.RevocationReason).HasConversion<string>().HasMaxLength(32);
             session.Ignore(s => s.IsRevoked);
         });

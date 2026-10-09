@@ -15,6 +15,7 @@ public sealed class PortalSessionAuthenticationHandler(
     ILoggerFactory loggerFactory,
     UrlEncoder encoder,
     PortalAuthenticationService authentication,
+    TimeProvider timeProvider,
     IProblemDetailsService problemDetails)
     : AuthenticationHandler<AuthenticationSchemeOptions>(options, loggerFactory, encoder)
 {
@@ -34,6 +35,7 @@ public sealed class PortalSessionAuthenticationHandler(
             return AuthenticateResult.Fail("The session is not active.");
         }
 
+        SessionCookie.Write(Response, handle, timeProvider.GetUtcNow());
         var principal = PortalClaims.CreatePrincipal(session, SchemeName);
         return AuthenticateResult.Success(new AuthenticationTicket(principal, SchemeName));
     }

@@ -10,6 +10,8 @@ namespace IitAcademicPortal.Api.Development;
 /// </summary>
 public static class DevelopmentDataSeeder
 {
+    // The first role listed is the account's default role. Teacher+Coordinator defaults to Teacher, which
+    // differs from the fallback order (Coordinator first), so the stored default is observable.
     private static readonly (string Email, string[] Roles)[] Accounts =
     [
         ("admin@iit.test", [PortalRoles.Admin]),
@@ -32,12 +34,19 @@ public static class DevelopmentDataSeeder
 
         foreach (var (email, roles) in Accounts)
         {
-            if (await users.FindByEmailAsync(email) is not null)
+            if (await users.FindByEmailAsync(email) is { } existing)
             {
+                // Accounts seeded before default roles existed get one; an existing value is left alone.
+                if (existing.DefaultRole is null)
+                {
+                    existing.DefaultRole = roles[0];
+                    await users.UpdateAsync(existing);
+                }
+
                 continue;
             }
 
-            var user = new PortalUser { UserName = email, Email = email, EmailConfirmed = true };
+            var user = new PortalUser { UserName = email, Email = email, EmailConfirmed = true, DefaultRole = roles[0] };
             var created = await users.CreateAsync(user, password);
             if (!created.Succeeded)
             {

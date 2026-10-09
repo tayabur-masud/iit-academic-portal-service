@@ -2,12 +2,13 @@ using IitAcademicPortal.Domain.Sessions;
 
 namespace IitAcademicPortal.Application.Abstractions;
 
-/// <summary>An active (unrevoked) session together with the account's currently assigned roles.</summary>
-public sealed record SessionSnapshot(AuthSession Session, IReadOnlyList<string> AssignedRoles);
+/// <summary>An active (unrevoked) session with the account's currently assigned roles and stored default role.</summary>
+public sealed record SessionSnapshot(AuthSession Session, IReadOnlyList<string> AssignedRoles, string? DefaultRole);
 
 public interface IAuthSessionRepository
 {
-    Task<SessionSnapshot?> FindActiveByDigestAsync(string handleDigest, CancellationToken cancellationToken);
+    Task<SessionSnapshot?> TouchActiveByDigestAsync(
+        string handleDigest, DateTimeOffset now, CancellationToken cancellationToken);
 
     Task<SessionSnapshot?> FindActiveByIdAsync(Guid sessionId, CancellationToken cancellationToken);
 

@@ -5,4 +5,5 @@ public enum SessionRevocationReason
     Logout,
     PasswordReset,
     SecurityAction,
+    IdleTimeout,
 }

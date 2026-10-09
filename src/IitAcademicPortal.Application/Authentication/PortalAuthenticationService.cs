@@ -22,8 +22,9 @@ public enum SetActiveRoleStatus
 public sealed record SetActiveRoleOutcome(SetActiveRoleStatus Status, SessionContext? Context);
 
 /// <summary>
-/// Email/password sign-in and per-session state: validation, active-role selection, and revocation.
-/// Sessions never expire by time; they end only through explicit revocation.
+/// Email/password sign-in into the account's default role, and per-session state: validation, active-role
+/// switching, and revocation.
+/// Sessions expire after three hours without authenticated activity.
 /// </summary>
 public sealed class PortalAuthenticationService(
     UserManager<PortalUser> userManager,
@@ -53,8 +54,9 @@ public sealed class PortalAuthenticationService(
             return SignInOutcome.Failed;
         }
 
+        // Every account with a role enters its default role directly; there is no role-selection step.
         var roles = PortalRoles.Normalize(await userManager.GetRolesAsync(user));
-        var activeRole = roles.Count == 1 ? roles[0] : null;
+        var activeRole = PortalRoles.ResolveDefault(roles, user.DefaultRole);
 
         var handle = SessionHandle.Create();
         var session = new AuthSession(user.Id, SessionHandle.ComputeDigest(handle), activeRole, timeProvider.GetUtcNow());
@@ -67,11 +69,13 @@ public sealed class PortalAuthenticationService(
 
     /// <summary>
     /// Resolves a session handle to an active session. The stored active role is honored only while it
-    /// remains assigned to the account, so removed assignments stop authorizing immediately.
+    /// remains assigned to the account, so removed assignments stop authorizing immediately; the session
+    /// then continues in the account's default role among the roles it still has.
     /// </summary>
     public async Task<ValidatedSession?> ValidateAsync(string handle, CancellationToken cancellationToken)
     {
-        var snapshot = await sessions.FindActiveByDigestAsync(SessionHandle.ComputeDigest(handle), cancellationToken);
+        var snapshot = await sessions.TouchActiveByDigestAsync(
+            SessionHandle.ComputeDigest(handle), timeProvider.GetUtcNow(), cancellationToken);
         return snapshot is null
             ? null
             : new ValidatedSession(snapshot.Session.Id, snapshot.Session.UserId, ToContext(snapshot));
@@ -120,7 +124,7 @@ public sealed class PortalAuthenticationService(
         var roles = PortalRoles.Normalize(snapshot.AssignedRoles);
         var activeRole = roles.Contains(snapshot.Session.ActiveRole ?? string.Empty, StringComparer.Ordinal)
             ? snapshot.Session.ActiveRole
-            : null;
+            : PortalRoles.ResolveDefault(roles, snapshot.DefaultRole);
         return new SessionContext(roles, activeRole);
     }
 }

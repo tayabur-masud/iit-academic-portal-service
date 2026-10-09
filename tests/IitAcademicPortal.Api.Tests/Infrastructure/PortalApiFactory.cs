@@ -91,6 +91,15 @@ public class PortalApiFactory : WebApplicationFactory<Program>
         Assert.True((await users.RemoveFromRoleAsync(user!, role)).Succeeded);
     }
 
+    public async Task SetDefaultRoleAsync(string email, string? role)
+    {
+        await using var scope = Services.CreateAsyncScope();
+        var users = scope.ServiceProvider.GetRequiredService<UserManager<PortalUser>>();
+        var user = await users.FindByEmailAsync(email);
+        user!.DefaultRole = role;
+        Assert.True((await users.UpdateAsync(user)).Succeeded);
+    }
+
     public async Task WithDbAsync(Func<PortalDbContext, Task> action)
     {
         await using var scope = Services.CreateAsyncScope();

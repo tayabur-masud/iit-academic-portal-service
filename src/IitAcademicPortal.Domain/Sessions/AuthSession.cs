@@ -4,12 +4,13 @@ namespace IitAcademicPortal.Domain.Sessions;
 /// One independently revocable authenticated browser session.
 /// </summary>
 /// <remarks>
-/// There is deliberately no expiry, idle-timeout, or maximum-age field: the approved policy keeps a
-/// session active until explicit logout or a specified revocation action. The raw session handle is
-/// never stored; only its one-way digest is persisted.
+/// Sessions expire after three hours without authenticated activity. The raw session handle is never
+/// stored; only its one-way digest is persisted.
 /// </remarks>
 public class AuthSession
 {
+    public static readonly TimeSpan IdleTimeout = TimeSpan.FromHours(3);
+
     private AuthSession()
     {
     }
@@ -21,6 +22,7 @@ public class AuthSession
         HandleDigest = handleDigest;
         ActiveRole = activeRole;
         CreatedAt = createdAt;
+        LastActivityAt = createdAt;
     }
 
     public Guid Id { get; private set; }
@@ -29,10 +31,12 @@ public class AuthSession
 
     public string UserId { get; private set; } = string.Empty;
 
-    /// <summary>Null only while a multi-role user has not yet chosen a role.</summary>
+    /// <summary>Starts as the account's default role; null only when the account has no supported role.</summary>
     public string? ActiveRole { get; private set; }
 
     public DateTimeOffset CreatedAt { get; private set; }
+
+    public DateTimeOffset LastActivityAt { get; private set; }
 
     public DateTimeOffset? RevokedAt { get; private set; }
 
@@ -42,6 +46,8 @@ public class AuthSession
 
     /// <summary>Changes this session's active role. Callers must verify the role is currently assigned.</summary>
     public void SetActiveRole(string role) => ActiveRole = role;
+
+    public bool HasExceededIdleTimeout(DateTimeOffset now) => now >= LastActivityAt + IdleTimeout;
 
     public void Revoke(SessionRevocationReason reason, DateTimeOffset at)
     {

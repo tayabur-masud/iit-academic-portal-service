@@ -8,4 +8,10 @@ namespace IitAcademicPortal.Domain.Identity;
 /// </summary>
 public class PortalUser : IdentityUser
 {
+    /// <summary>
+    /// The role a multi-role account enters at sign-in. It is honored only while it is one of the account's
+    /// assigned roles; otherwise <see cref="PortalRoles.ResolveDefault"/> falls back to a fixed order.
+    /// Set during provisioning; administrators will change it through user management.
+    /// </summary>
+    public string? DefaultRole { get; set; }
 }

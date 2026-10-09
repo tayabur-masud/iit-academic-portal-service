@@ -7,8 +7,28 @@ namespace IitAcademicPortal.Infrastructure.Persistence;
 
 public sealed class AuthSessionRepository(PortalDbContext db) : IAuthSessionRepository
 {
-    public Task<SessionSnapshot?> FindActiveByDigestAsync(string handleDigest, CancellationToken cancellationToken) =>
-        FindActiveAsync(s => s.HandleDigest == handleDigest, cancellationToken);
+    public async Task<SessionSnapshot?> TouchActiveByDigestAsync(
+        string handleDigest, DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        var matchingSession = db.AuthSessions
+            .Where(s => s.HandleDigest == handleDigest && s.RevokedAt == null);
+        var idleCutoff = now - AuthSession.IdleTimeout;
+        var touched = await matchingSession
+            .Where(s => s.LastActivityAt > idleCutoff)
+            .ExecuteUpdateAsync(setters => setters.SetProperty(s => s.LastActivityAt, now), cancellationToken);
+
+        if (touched == 0)
+        {
+            await matchingSession
+                .Where(s => s.LastActivityAt <= idleCutoff)
+                .ExecuteUpdateAsync(setters => setters
+                    .SetProperty(s => s.RevokedAt, now)
+                    .SetProperty(s => s.RevocationReason, SessionRevocationReason.IdleTimeout), cancellationToken);
+            return null;
+        }
+
+        return await FindActiveAsync(s => s.HandleDigest == handleDigest, cancellationToken);
+    }
 
     public Task<SessionSnapshot?> FindActiveByIdAsync(Guid sessionId, CancellationToken cancellationToken) =>
         FindActiveAsync(s => s.Id == sessionId, cancellationToken);

@@ -43,8 +43,6 @@ public sealed class SessionsController(PortalAuthenticationService authenticatio
     [HttpGet("current")]
     public ActionResult<SessionContextResponse> GetCurrent()
     {
-        // Re-issue the cookie so an actively used browser never reaches its cookie lifetime cap.
-        SessionCookie.Write(Response, SessionCookie.Read(Request)!, timeProvider.GetUtcNow());
         return SessionContextResponse.From(User.GetSessionContext());
     }
 

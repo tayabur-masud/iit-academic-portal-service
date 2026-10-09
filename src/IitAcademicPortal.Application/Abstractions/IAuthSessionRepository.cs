@@ -7,7 +7,8 @@ public sealed record SessionSnapshot(AuthSession Session, IReadOnlyList<string> 
 
 public interface IAuthSessionRepository
 {
-    Task<SessionSnapshot?> FindActiveByDigestAsync(string handleDigest, CancellationToken cancellationToken);
+    Task<SessionSnapshot?> TouchActiveByDigestAsync(
+        string handleDigest, DateTimeOffset now, CancellationToken cancellationToken);
 
     Task<SessionSnapshot?> FindActiveByIdAsync(Guid sessionId, CancellationToken cancellationToken);
 

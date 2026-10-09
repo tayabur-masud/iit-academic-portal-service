@@ -5,7 +5,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace IitAcademicPortal.Api.Tests;
 
-/// <summary>US1: email/password sign-in, generic failures, explicit logout, and no automatic expiry.</summary>
+/// <summary>US1: email/password sign-in, generic failures, explicit logout, and idle expiry.</summary>
 public sealed class SignInAndSignOutTests(PortalApiFactory factory) : IClassFixture<PortalApiFactory>
 {
     [Fact]
@@ -108,20 +108,51 @@ public sealed class SignInAndSignOutTests(PortalApiFactory factory) : IClassFixt
     }
 
     [Fact]
-    public async Task Sessions_do_not_expire_with_age_or_inactivity()
+    public async Task Authenticated_activity_refreshes_the_sliding_session_window()
     {
         var email = PortalApiFactory.UniqueEmail("student");
         var userId = await factory.CreateUserAsync(email, PortalRoles.Student);
         using var client = factory.CreatePortalClient();
         await client.SignInSuccessfullyAsync(email);
 
-        // Simulate a session created long ago and idle since.
+        // A request within the idle window keeps the session active and refreshes its persisted activity.
         await factory.WithDbAsync(db => db.AuthSessions
             .Where(s => s.UserId == userId)
-            .ExecuteUpdateAsync(s => s.SetProperty(x => x.CreatedAt, DateTimeOffset.UtcNow.AddYears(-3))));
+            .ExecuteUpdateAsync(s => s.SetProperty(x => x.LastActivityAt, DateTimeOffset.UtcNow.AddHours(-2))));
 
-        Assert.Equal(HttpStatusCode.OK, (await client.GetCurrentSessionAsync()).StatusCode);
-        Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/test-probe/modules/student")).StatusCode);
+        var response = await client.GetAsync("/test-probe/modules/student");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Contains("expires=", response.Headers.GetValues("Set-Cookie").Single(), StringComparison.OrdinalIgnoreCase);
+        await factory.WithDbAsync(async db =>
+        {
+            var session = await db.AuthSessions.SingleAsync(s => s.UserId == userId);
+            Assert.True(session.LastActivityAt > DateTimeOffset.UtcNow.AddMinutes(-1));
+        });
+    }
+
+    [Fact]
+    public async Task Session_past_three_hours_of_inactivity_is_revoked()
+    {
+        var email = PortalApiFactory.UniqueEmail("student");
+        var userId = await factory.CreateUserAsync(email, PortalRoles.Student);
+        using var client = factory.CreatePortalClient();
+        await client.SignInSuccessfullyAsync(email);
+
+        await factory.WithDbAsync(db => db.AuthSessions
+            .Where(s => s.UserId == userId)
+            .ExecuteUpdateAsync(s => s.SetProperty(
+                x => x.LastActivityAt, DateTimeOffset.UtcNow.AddHours(-3).AddMinutes(-1))));
+
+        Assert.Equal(HttpStatusCode.Unauthorized, (await client.GetCurrentSessionAsync()).StatusCode);
+        await factory.WithDbAsync(async db =>
+        {
+            var session = await db.AuthSessions.SingleAsync(s => s.UserId == userId);
+            Assert.NotNull(session.RevokedAt);
+            Assert.Equal(
+                IitAcademicPortal.Domain.Sessions.SessionRevocationReason.IdleTimeout,
+                session.RevocationReason);
+        });
     }
 
     [Fact]

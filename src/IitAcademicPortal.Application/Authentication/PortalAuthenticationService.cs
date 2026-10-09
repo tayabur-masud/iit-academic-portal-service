@@ -23,7 +23,7 @@ public sealed record SetActiveRoleOutcome(SetActiveRoleStatus Status, SessionCon
 
 /// <summary>
 /// Email/password sign-in and per-session state: validation, active-role selection, and revocation.
-/// Sessions never expire by time; they end only through explicit revocation.
+/// Sessions expire after three hours without authenticated activity.
 /// </summary>
 public sealed class PortalAuthenticationService(
     UserManager<PortalUser> userManager,
@@ -71,7 +71,8 @@ public sealed class PortalAuthenticationService(
     /// </summary>
     public async Task<ValidatedSession?> ValidateAsync(string handle, CancellationToken cancellationToken)
     {
-        var snapshot = await sessions.FindActiveByDigestAsync(SessionHandle.ComputeDigest(handle), cancellationToken);
+        var snapshot = await sessions.TouchActiveByDigestAsync(
+            SessionHandle.ComputeDigest(handle), timeProvider.GetUtcNow(), cancellationToken);
         return snapshot is null
             ? null
             : new ValidatedSession(snapshot.Session.Id, snapshot.Session.UserId, ToContext(snapshot));

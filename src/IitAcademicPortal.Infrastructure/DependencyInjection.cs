@@ -1,6 +1,7 @@
 using IitAcademicPortal.Application.Abstractions;
 using IitAcademicPortal.Application.PasswordRecovery;
 using IitAcademicPortal.Domain.Identity;
+using IitAcademicPortal.Infrastructure.Auditing;
 using IitAcademicPortal.Infrastructure.Email;
 using IitAcademicPortal.Infrastructure.PasswordRecovery;
 using IitAcademicPortal.Infrastructure.Persistence;
@@ -16,8 +17,14 @@ public static class DependencyInjection
 {
     public static IServiceCollection AddInfrastructure(this IServiceCollection services, IConfiguration configuration)
     {
-        services.AddDbContext<PortalDbContext>(options =>
-            options.UseNpgsql(configuration.GetConnectionString("Portal")));
+        // The API runs as a restricted runtime account. `dotnet ef` runs as the schema owner, so at design time
+        // it uses the migrations connection string when one is configured.
+        services.AddPortalDatabase(options =>
+        {
+            var migrations = configuration.GetConnectionString("PortalMigrations");
+            var name = EF.IsDesignTime && !string.IsNullOrWhiteSpace(migrations) ? "PortalMigrations" : "Portal";
+            options.UseNpgsql(configuration.GetConnectionString(name));
+        });
 
         services.AddDataProtection();
         services
@@ -50,6 +57,28 @@ public static class DependencyInjection
         services.AddSingleton<PasswordRecoveryQueue>();
         services.AddSingleton<IPasswordRecoveryQueue>(sp => sp.GetRequiredService<PasswordRecoveryQueue>());
         services.AddHostedService<PasswordRecoveryWorker>();
+
+        services.AddAuditInfrastructure(configuration);
+
+        return services;
+    }
+
+    private static IServiceCollection AddAuditInfrastructure(this IServiceCollection services, IConfiguration configuration)
+    {
+        services.AddScoped<IAuditEventStore, AuditEventStore>();
+        services.AddScoped<IAuditActorDirectory, AuditActorDirectory>();
+        services.AddSingleton<ISecurityAuditOutboxStore, SecurityAuditOutboxStore>();
+
+        services.Configure<AuditDeliveryOptions>(configuration.GetSection(AuditDeliveryOptions.SectionName));
+        services.AddSingleton<SecurityAuditOutboxProcessor>();
+        services.AddHostedService<SecurityAuditOutboxWorker>();
+
+        // Outside Development the service refuses to start without a configured durable fallback sink.
+        services.AddOptions<AuditFallbackOptions>()
+            .Bind(configuration.GetSection(AuditFallbackOptions.SectionName))
+            .ValidateOnStart();
+        services.AddSingleton<IValidateOptions<AuditFallbackOptions>, AuditFallbackOptionsValidator>();
+        services.AddSingleton<IDurableSecurityEventSink, FileSecurityEventSink>();
 
         return services;
     }

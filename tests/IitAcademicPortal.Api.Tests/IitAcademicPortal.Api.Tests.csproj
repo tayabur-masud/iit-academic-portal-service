@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
@@ -22,6 +22,11 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\IitAcademicPortal.Api\IitAcademicPortal.Api.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The PostgreSQL tests apply the same grants script a deployment uses. -->
+    <None Include="..\..\database\postgresql\*.sql" Link="database\postgresql\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

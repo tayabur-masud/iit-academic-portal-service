@@ -1,5 +1,7 @@
 using IitAcademicPortal.Application.Abstractions;
+using IitAcademicPortal.Application.Auditing;
 using IitAcademicPortal.Application.Authentication;
+using IitAcademicPortal.Domain.Auditing;
 using IitAcademicPortal.Domain.Identity;
 using IitAcademicPortal.Domain.Sessions;
 using Microsoft.AspNetCore.Identity;
@@ -31,6 +33,7 @@ public sealed class PasswordRecoveryService(
     IPasswordRecoveryQueue queue,
     IEmailSender emailSender,
     PortalAuthenticationService authentication,
+    IAuditEventRecorder audit,
     IOptions<PasswordRecoveryOptions> options,
     ILogger<PasswordRecoveryService> logger)
 {
@@ -73,6 +76,7 @@ public sealed class PasswordRecoveryService(
         var policyErrors = PasswordPolicy.Validate(newPassword);
         if (policyErrors.Count > 0)
         {
+            await RecordResetAsync(AuditOutcome.Failure, null, "password_rejected");
             return new PasswordResetOutcome(PasswordResetStatus.PasswordRejected, policyErrors);
         }
 
@@ -80,6 +84,7 @@ public sealed class PasswordRecoveryService(
         if (user is null)
         {
             logger.LogWarning("Password reset rejected: invalid recovery proof");
+            await RecordResetAsync(AuditOutcome.Failure, null, "invalid_proof");
             return PasswordResetOutcome.InvalidProof;
         }
 
@@ -89,9 +94,11 @@ public sealed class PasswordRecoveryService(
             if (result.Errors.Any(e => e.Code == nameof(IdentityErrorDescriber.InvalidToken)))
             {
                 logger.LogWarning("Password reset rejected for user {UserId}: invalid recovery proof", user.Id);
+                await RecordResetAsync(AuditOutcome.Failure, null, "invalid_proof");
                 return PasswordResetOutcome.InvalidProof;
             }
 
+            await RecordResetAsync(AuditOutcome.Failure, null, "password_rejected");
             return new PasswordResetOutcome(PasswordResetStatus.PasswordRejected, result.Errors.Select(e => e.Description).ToArray());
         }
 
@@ -101,8 +108,18 @@ public sealed class PasswordRecoveryService(
         }
 
         logger.LogInformation("Password reset completed for user {UserId}", user.Id);
+        await RecordResetAsync(AuditOutcome.Success, user.Id, null);
         return PasswordResetOutcome.Succeeded;
     }
+
+    // A failed reset records no account, so the audit trail reveals nothing the client response does not. Neither
+    // the recovery proof nor the new password is ever recorded.
+    private Task RecordResetAsync(AuditOutcome outcome, string? actorUserId, string? reason) =>
+        audit.RecordSecurityAsync(new AuditEventRequest(AuditEventDefinitions.PasswordResetCompleted, outcome)
+        {
+            ActorUserId = actorUserId,
+            Metadata = reason is null ? null : new Dictionary<string, object?> { ["reason"] = reason },
+        });
 
     private static string FormatLifespan(TimeSpan lifespan) =>
         lifespan.TotalMinutes < 120 ? $"{lifespan.TotalMinutes:0} minutes" : $"{lifespan.TotalHours:0} hours";

@@ -33,9 +33,15 @@ public sealed class PortalClient(HttpClient http, CookieContainer cookies) : IDi
     public Task<HttpResponseMessage> SetActiveRoleAsync(string role) =>
         SendAsync(HttpMethod.Put, "/api/auth/sessions/current/active-role", new { role });
 
-    public async Task<HttpResponseMessage> SendAsync(HttpMethod method, string url, object? body = null, bool withAntiforgery = true)
+    public async Task<HttpResponseMessage> SendAsync(
+        HttpMethod method, string url, object? body = null, bool withAntiforgery = true, IDictionary<string, string>? headers = null)
     {
         using var request = new HttpRequestMessage(method, url);
+        foreach (var (name, value) in headers ?? new Dictionary<string, string>())
+        {
+            request.Headers.Add(name, value);
+        }
+
         if (body is not null)
         {
             request.Content = JsonContent.Create(body);

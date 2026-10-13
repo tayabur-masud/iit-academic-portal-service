@@ -1,6 +1,7 @@
 using IitAcademicPortal.Application.Abstractions;
 using IitAcademicPortal.Application.Auditing;
 using IitAcademicPortal.Application.Authentication;
+using IitAcademicPortal.Application.Configuration;
 using IitAcademicPortal.Application.PasswordRecovery;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -20,6 +21,9 @@ public static class DependencyInjection
         services.AddSingleton<AuditMetrics>();
         services.AddScoped<IAuditEventRecorder, AuditEventRecorder>();
         services.AddScoped<AuditReviewService>();
+        services.AddSingleton<ConfigurationResources>();
+        services.AddScoped<CatalogService>();
+        services.AddScoped<GeographyImportService>();
         services.AddScoped<PortalAuthenticationService>();
         services.AddScoped<PasswordRecoveryService>();
         return services;

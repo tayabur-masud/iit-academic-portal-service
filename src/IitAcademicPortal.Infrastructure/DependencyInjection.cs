@@ -66,6 +66,7 @@ public static class DependencyInjection
     private static IServiceCollection AddAuditInfrastructure(this IServiceCollection services, IConfiguration configuration)
     {
         services.AddScoped<IAuditEventStore, AuditEventStore>();
+        services.AddScoped<IConfigurationStore, ConfigurationStore>();
         services.AddScoped<IAuditActorDirectory, AuditActorDirectory>();
         services.AddSingleton<ISecurityAuditOutboxStore, SecurityAuditOutboxStore>();
 

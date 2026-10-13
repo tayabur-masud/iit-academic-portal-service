@@ -1,0 +1,152 @@
+using System.Linq.Expressions;
+using IitAcademicPortal.Application.Abstractions;
+using IitAcademicPortal.Application.Configuration;
+using IitAcademicPortal.Domain.Configuration;
+using Microsoft.EntityFrameworkCore;
+using Npgsql;
+
+namespace IitAcademicPortal.Infrastructure.Persistence;
+
+/// <summary>
+/// Configuration records over the request's <see cref="PortalDbContext"/>. Staged audit events live in the same
+/// context, so <see cref="SaveAsync"/> commits a change and its event in one transaction.
+/// </summary>
+public sealed class ConfigurationStore(PortalDbContext db) : IConfigurationStore
+{
+    private const string UniqueViolation = "23505";
+    private const string ForeignKeyViolation = "23503";
+
+    // A foreign key declared RESTRICT (as every configuration relationship is) reports its own code, not 23503.
+    private const string RestrictViolation = "23001";
+
+    // SQLite extended result codes, used by the test host: UNIQUE, PRIMARYKEY, FOREIGNKEY.
+    private const int SqliteUnique = 2067;
+    private const int SqlitePrimaryKey = 1555;
+    private const int SqliteForeignKey = 787;
+
+    public Task<T?> FindAsync<T>(Guid id, CancellationToken cancellationToken) where T : ConfigurationRecord =>
+        db.Set<T>().FirstOrDefaultAsync(e => e.Id == id, cancellationToken);
+
+    public Task<bool> NameExistsAsync<T>(Expression<Func<T, bool>> scope, string normalizedName, Guid exceptId, CancellationToken cancellationToken)
+        where T : ConfigurationRecord =>
+        db.Set<T>().Where(scope).AnyAsync(e => e.NormalizedName == normalizedName && e.Id != exceptId, cancellationToken);
+
+    public Task<bool> CodeExistsAsync<T>(string normalizedCode, Guid exceptId, CancellationToken cancellationToken)
+        where T : ConfigurationRecord, ICodedRecord =>
+        db.Set<T>().AnyAsync(e => EF.Property<string?>(e, nameof(ICodedRecord.NormalizedCode)) == normalizedCode && e.Id != exceptId, cancellationToken);
+
+    public async Task<IReadOnlyList<T>> ListAsync<T>(
+        Expression<Func<T, bool>>? filter,
+        string? normalizedSearch,
+        ConfigurationStatus status,
+        string? afterName,
+        Guid? afterId,
+        int take,
+        CancellationToken cancellationToken,
+        int skip = 0) where T : ConfigurationRecord
+    {
+        var query = Matching(filter, normalizedSearch, status);
+
+        // Keyset continuation: strictly after the last row of the previous page in (name, id) order.
+        if (afterName is not null && afterId is { } lastId)
+        {
+            query = query.Where(e => string.Compare(e.NormalizedName, afterName) > 0
+                || (e.NormalizedName == afterName && e.Id.CompareTo(lastId) > 0));
+        }
+
+        // Numbered pages skip whole pages instead; the order is the same, so both modes agree on what comes first.
+        return await query.OrderBy(e => e.NormalizedName).ThenBy(e => e.Id).Skip(skip).Take(take).ToListAsync(cancellationToken);
+    }
+
+    public Task<long> CountMatchingAsync<T>(
+        Expression<Func<T, bool>>? filter, string? normalizedSearch, ConfigurationStatus status, CancellationToken cancellationToken)
+        where T : ConfigurationRecord =>
+        Matching(filter, normalizedSearch, status).LongCountAsync(cancellationToken);
+
+    /// <summary>The records a list shows before paging: the parent filter, the status, and the search.</summary>
+    private IQueryable<T> Matching<T>(Expression<Func<T, bool>>? filter, string? normalizedSearch, ConfigurationStatus status)
+        where T : ConfigurationRecord
+    {
+        var query = db.Set<T>().AsNoTracking();
+
+        if (filter is not null)
+        {
+            query = query.Where(filter);
+        }
+
+        query = status switch
+        {
+            ConfigurationStatus.Active => query.Where(e => e.IsActive),
+            ConfigurationStatus.Inactive => query.Where(e => !e.IsActive),
+            _ => query,
+        };
+
+        if (normalizedSearch is not null)
+        {
+            query = typeof(ICodedRecord).IsAssignableFrom(typeof(T))
+                ? query.Where(e => e.NormalizedName.Contains(normalizedSearch)
+                    || (EF.Property<string?>(e, nameof(ICodedRecord.NormalizedCode)) ?? string.Empty).Contains(normalizedSearch))
+                : query.Where(e => e.NormalizedName.Contains(normalizedSearch));
+        }
+
+        return query;
+    }
+
+    public Task<long> CountAsync<T>(CancellationToken cancellationToken) where T : ConfigurationRecord =>
+        db.Set<T>().LongCountAsync(cancellationToken);
+
+    public void Add<T>(T entity) where T : ConfigurationRecord => db.Set<T>().Add(entity);
+
+    public void AddRange<T>(IEnumerable<T> entities) where T : ConfigurationRecord => db.Set<T>().AddRange(entities);
+
+    public void Remove<T>(T entity) where T : ConfigurationRecord => db.Set<T>().Remove(entity);
+
+    public async Task SaveAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            await db.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateException ex) when (Classify(ex) is { } kind)
+        {
+            throw new ConfigurationConflictException(kind, ex);
+        }
+    }
+
+    /// <summary>Recognises a unique or foreign-key violation from PostgreSQL, or from SQLite in the test host.</summary>
+    private static ConfigurationConflictKind? Classify(Exception exception)
+    {
+        for (var inner = exception.InnerException; inner is not null; inner = inner.InnerException)
+        {
+            if (inner is PostgresException postgres)
+            {
+                return postgres.SqlState switch
+                {
+                    UniqueViolation => ConfigurationConflictKind.Duplicate,
+                    ForeignKeyViolation or RestrictViolation => ConfigurationConflictKind.Referenced,
+                    _ => null,
+                };
+            }
+
+            // The SQLite provider is referenced only by the tests, so its error code is read by name.
+            if (inner.GetType().Name == "SqliteException")
+            {
+                var extended = inner.GetType().GetProperty("SqliteExtendedErrorCode")?.GetValue(inner) as int?;
+                var kind = extended switch
+                {
+                    SqliteUnique or SqlitePrimaryKey => ConfigurationConflictKind.Duplicate,
+                    SqliteForeignKey => ConfigurationConflictKind.Referenced,
+                    _ => (ConfigurationConflictKind?)null,
+                };
+
+                // Without extended result codes SQLite reports a bare constraint failure; its message says which.
+                return kind
+                    ?? (inner.Message.Contains("FOREIGN KEY", StringComparison.OrdinalIgnoreCase) ? ConfigurationConflictKind.Referenced
+                    : inner.Message.Contains("UNIQUE", StringComparison.OrdinalIgnoreCase) ? ConfigurationConflictKind.Duplicate
+                    : null);
+            }
+        }
+
+        return null;
+    }
+}

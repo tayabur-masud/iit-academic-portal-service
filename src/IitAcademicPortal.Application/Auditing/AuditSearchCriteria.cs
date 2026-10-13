@@ -14,6 +14,11 @@ public sealed record AuditSearchCriteria(
     AuditOutcome? Outcome,
     string? CorrelationId,
     int PageSize,
-    string? Cursor);
+    string? Cursor,
+    int? Page = null);
 
-public sealed record AuditEventPage(IReadOnlyList<AuditEvent> Items, string? NextCursor);
+/// <summary>
+/// One page of events. <c>TotalCount</c> is set only for a numbered-page request (<c>Page</c>), which is the one mode that
+/// counts every match; cursor paging never does.
+/// </summary>
+public sealed record AuditEventPage(IReadOnlyList<AuditEvent> Items, string? NextCursor, long? TotalCount = null);

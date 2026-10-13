@@ -119,7 +119,7 @@ AND    EXISTS (SELECT 1 FROM "AspNetUserRoles" ur JOIN "AspNetRoles" r ON r."Id"
 ## Audit
 
 The service records important events as append-only audit history, and Admins review it at `GET /api/audit-events`
-(search) and `GET /api/audit-events/{eventId}` (detail). Both require the **active** Admin role; `/admin/audit` in
+(search) and `GET /api/audit-events/{eventId}` (detail). Search pages either by `cursor` (no count, no shifting while new events arrive) or by `page` (1-based; also returns `totalCount` and `totalPages`; the frontend uses this). The two cannot be combined. Both require the **active** Admin role; `/admin/audit` in
 the frontend uses them. Contract: `specs/002-audit-system/contracts/audit.openapi.json`.
 
 - **Business events** are written in the same transaction as the business change, so both commit or neither does.

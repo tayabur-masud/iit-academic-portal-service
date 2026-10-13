@@ -16,12 +16,18 @@ public sealed record AuditSearchRequest(
     string? Outcome,
     string? CorrelationId,
     int? PageSize,
-    string? Cursor);
+    string? Cursor,
+    int? Page = null);
 
 /// <summary>A stored event together with its actor's current email, resolved when the event is viewed.</summary>
 public sealed record AuditEventView(AuditEvent Event, string? ActorDisplay);
 
-public sealed record AuditEventViewPage(IReadOnlyList<AuditEventView> Items, string? NextCursor);
+public sealed record AuditEventViewPage(
+    IReadOnlyList<AuditEventView> Items,
+    string? NextCursor,
+    int? Page = null,
+    long? TotalCount = null,
+    int? TotalPages = null);
 
 /// <summary>Either a value, or field-level validation errors that become an HTTP 400.</summary>
 public sealed record AuditReviewResult<T>(T? Value, IReadOnlyDictionary<string, string[]>? Errors)
@@ -59,7 +65,9 @@ public sealed class AuditReviewService(
             .ToList();
 
         await RecordAccessAsync(reviewerUserId, "search", entityId: null, FiltersUsed(request));
-        return new AuditReviewResult<AuditEventViewPage>(new AuditEventViewPage(items, page.NextCursor), null);
+        int? totalPages = page.TotalCount is { } total ? (int)Math.Min((total + criteria.PageSize - 1) / criteria.PageSize, int.MaxValue) : null;
+        return new AuditReviewResult<AuditEventViewPage>(
+            new AuditEventViewPage(items, page.NextCursor, criteria.Page, page.TotalCount, totalPages), null);
     }
 
     public async Task<AuditEventView?> GetAsync(Guid eventId, string? reviewerUserId, CancellationToken cancellationToken)
@@ -121,6 +129,11 @@ public sealed class AuditReviewService(
             filters["pageSize"] = size;
         }
 
+        if (r.Page is { } pageNumber)
+        {
+            filters["page"] = pageNumber;
+        }
+
         return filters;
     }
 
@@ -147,6 +160,15 @@ public sealed class AuditReviewService(
             errors["cursor"] = ["The cursor is not valid. Start again from the first page."];
         }
 
+        if (request.Page is < 1)
+        {
+            errors["page"] = ["The page number must be 1 or more."];
+        }
+        else if (request.Page is not null && !string.IsNullOrEmpty(request.Cursor))
+        {
+            errors["page"] = ["Use either a page number or a cursor, not both."];
+        }
+
         foreach (var (name, value, max) in new[]
         {
             ("actorUserId", request.ActorUserId, AuditEvent.MaxActorUserIdLength),
@@ -166,7 +188,7 @@ public sealed class AuditReviewService(
             ? null
             : new AuditSearchCriteria(
                 from, to, Blank(request.ActorUserId), category, Blank(request.EventType), Blank(request.EntityType),
-                Blank(request.EntityId), outcome, Blank(request.CorrelationId), pageSize, Blank(request.Cursor));
+                Blank(request.EntityId), outcome, Blank(request.CorrelationId), pageSize, Blank(request.Cursor), request.Page);
     }
 
     private static DateTime? ParseUtc(string? text, string name, Dictionary<string, string[]> errors)

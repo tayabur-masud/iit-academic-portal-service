@@ -67,6 +67,20 @@ public sealed class AuditEventStore(PortalDbContext db) : IAuditEventStore
                 || (e.OccurredAtUtc == cursorTime && e.Id.CompareTo(cursorId) < 0));
         }
 
+        if (criteria.Page is { } pageNumber)
+        {
+            // Numbered pages: the same stable order, with an offset and the total of all matches. New events can shift
+            // the pages while a reviewer browses; cursor paging is the mode that cannot.
+            var total = await query.LongCountAsync(cancellationToken);
+            var pageRows = await query
+                .OrderByDescending(e => e.OccurredAtUtc)
+                .ThenByDescending(e => e.Id)
+                .Skip((int)Math.Min((long)(pageNumber - 1) * criteria.PageSize, int.MaxValue))
+                .Take(criteria.PageSize)
+                .ToListAsync(cancellationToken);
+            return new AuditEventPage(pageRows, null, total);
+        }
+
         var rows = await query
             .OrderByDescending(e => e.OccurredAtUtc)
             .ThenByDescending(e => e.Id)

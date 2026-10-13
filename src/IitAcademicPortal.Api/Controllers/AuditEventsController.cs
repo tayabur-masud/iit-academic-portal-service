@@ -28,7 +28,9 @@ public sealed class AuditEventsController(AuditReviewService review, IAuditReque
             return ValidationProblem(new ValidationProblemDetails(result.Errors!.ToDictionary(e => e.Key, e => e.Value)));
         }
 
-        return new AuditEventPageResponse(result.Value!.Items.Select(AuditEventResponse.From).ToList(), result.Value.NextCursor);
+        var page = result.Value!;
+        return new AuditEventPageResponse(
+            page.Items.Select(AuditEventResponse.From).ToList(), page.NextCursor, page.Page, page.TotalCount, page.TotalPages);
     }
 
     // The identifier is parsed here, not constrained in the route: a constrained route would let the framework

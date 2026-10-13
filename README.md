@@ -6,7 +6,7 @@ Identity 10, EF Core 10, and PostgreSQL 18 through Npgsql 10.x.
 | Project | Layer |
 |---|---|
 | `src/IitAcademicPortal.Domain` | Entities and rules with no infrastructure: `PortalUser`, `PortalRoles`, `AuthSession`, record-boundary interfaces |
-| `src/IitAcademicPortal.Application` | Use cases: sign-in and session state, password recovery, password policy, record-access rules, audit recording and review |
+| `src/IitAcademicPortal.Application` | Use cases: sign-in and session state, password recovery, password policy, record-access rules, audit recording and review, Admin configuration (catalogs, batches, geography) |
 | `src/IitAcademicPortal.Infrastructure` | EF Core `PortalDbContext`, migrations, session repository, SMTP email, recovery queue, audit store, security-event outbox worker and fallback sink |
 | `src/IitAcademicPortal.Api` | Thin controllers, session-cookie authentication, anti-forgery, policies, rate limiting, problem details, audit review endpoints and health check |
 | `tests/IitAcademicPortal.Api.Tests` | xUnit API tests over the real pipeline (in-memory SQLite) plus unit tests |
@@ -237,10 +237,63 @@ endpoint for writing events.
    await db.SaveChangesAsync();   // the change and its event commit together or not at all
    ```
 
-   The actor, correlation ID, and source come from the request, never from client input.
+   The actor, correlation ID, and source come from the request, never from client input: if you leave
+   `ActorUserId` unset, `Stage` records the signed-in session's user. (Security events do not default it; a failed
+   sign-in records no account.)
 3. **Record a security event** with `await recorder.RecordSecurityAsync(...)`. It never throws and never changes
    the response.
 4. Keep metadata small (4 KB) and free of personal data you do not need; change summaries are limited to 16 KB.
+
+## Configuration (Admin reference data)
+
+Admins maintain the reference data other features depend on under `/api/admin/configuration`. Every route needs
+the session's **active** Admin role (401 anonymous, 403 any other active role), and every write needs the
+`X-CSRF-Token`. Contract: `specs/003-configuration/contracts/configuration-api.md`.
+
+| Resource | Route | Fields besides `name` and `isActive` |
+|---|---|---|
+| Educational institutions | `institutions` | `type` (School, College, University), optional `code`, optional `address` |
+| Education boards, degrees, designations | `education-boards`, `degrees`, `designations` | optional `code` |
+| Education groups, examination types, semesters, academic sessions | `education-groups`, `examination-types`, `semesters`, `academic-sessions` | none |
+| Batches | `batches` | `degreeId`, `startingSemesterId`, `academicSessionId`, all required |
+| Divisions, districts, upazilas | `geography/divisions`, `geography/districts`, `geography/upazilas` | `divisionId` (district), `districtId` (upazila); no codes |
+
+Each collection has `GET` (list), `POST` (create), and `GET`, `PUT`, `DELETE` on `/{id}`. A `PUT` takes the full
+writable record; set `isActive: false` to deactivate.
+
+- **Names** are compared after trimming, collapsing repeated whitespace, and upper-casing (so `" sci   ENCE"` equals
+  `"Science"`); the name as typed (trimmed) is what is stored and shown. Normalized values are never returned.
+- **Uniqueness**: a catalog name is unique within its catalog (the same name may exist in different catalogs);
+  non-empty codes are unique within their catalog, and a blank code counts as no code; a batch name is unique within
+  its degree whatever its session; district names are unique within a division and upazila names within a district.
+  PostgreSQL unique indexes are the last guard when two requests race.
+- **References**: a new or changed reference must exist and be active (`400`, keyed by field). An unchanged reference to
+  a record that was deactivated later is accepted, so the existing link can still be edited.
+- **Deactivate, never cascade**: deactivating a record keeps every link to it and does not touch dependents; it only
+  stops new assignments.
+- **Delete** works only while nothing refers to the record (`204`); otherwise it returns `409` and the record is
+  unchanged (every foreign key is `RESTRICT`).
+- **Lists** take `search`, `status` (`active` default, `inactive`, `all`), `pageSize` (25, up to 100), and, for districts and
+  upazilas, `divisionId` or `districtId`. Page them by `page` (1-based; the response then adds `page`, `totalCount`, and
+  `totalPages`, which the frontend uses) or by `cursor` (no count, and the pages never shift while new records arrive). The
+  two cannot be combined. Lists return `{ items, nextCursor }` plus the totals in page mode.
+- **Errors**: `400` with field-keyed `errors` for missing or invalid values, duplicates, and bad references; fields a
+  resource does not use are rejected, and so is any unknown JSON field (a client cannot name the audit actor).
+- **Audit**: each successful create, update, deactivate, and delete stages one `configuration.{resource}.{created|updated|
+  deactivated|deleted}` event with allowlisted before/after values and commits it with the change; a failed audit write
+  rolls the change back. An update that changes nothing writes nothing and records nothing.
+
+### Geography import
+
+No geography dataset ships with the portal. The owner supplies an approved JSON file (schema:
+`specs/003-configuration/contracts/geographic-seed.schema.json`) with a source citation and version. In Swagger,
+signed in as an Admin:
+
+1. `POST /api/admin/configuration/geography/import/validate` reports the source, per-level counts, `targetEmpty`, and
+   every problem with its path (`400` with the report if the document is invalid). It writes nothing.
+2. `POST /api/admin/configuration/geography/import` validates again and, only if the three geography tables are empty,
+   adds the whole hierarchy and one `configuration.geography.imported` event in one transaction. A non-empty target
+   returns `409`; existing rows are never overwritten.
 
 ## Deployment notes
 

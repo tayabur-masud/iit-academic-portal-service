@@ -1,4 +1,5 @@
 using IitAcademicPortal.Domain.Auditing;
+using IitAcademicPortal.Domain.Configuration;
 using IitAcademicPortal.Domain.Identity;
 using IitAcademicPortal.Domain.Sessions;
 using Microsoft.AspNetCore.Identity;
@@ -24,6 +25,30 @@ public class PortalDbContext(DbContextOptions<PortalDbContext> options) : Identi
     public DbSet<AuditEvent> AuditEvents => Set<AuditEvent>();
 
     public DbSet<SecurityAuditOutboxItem> SecurityAuditOutbox => Set<SecurityAuditOutboxItem>();
+
+    public DbSet<EducationalInstitution> EducationalInstitutions => Set<EducationalInstitution>();
+
+    public DbSet<EducationBoard> EducationBoards => Set<EducationBoard>();
+
+    public DbSet<EducationGroup> EducationGroups => Set<EducationGroup>();
+
+    public DbSet<ExaminationType> ExaminationTypes => Set<ExaminationType>();
+
+    public DbSet<Degree> Degrees => Set<Degree>();
+
+    public DbSet<Semester> Semesters => Set<Semester>();
+
+    public DbSet<AcademicSession> AcademicSessions => Set<AcademicSession>();
+
+    public DbSet<Designation> Designations => Set<Designation>();
+
+    public DbSet<Batch> Batches => Set<Batch>();
+
+    public DbSet<Division> Divisions => Set<Division>();
+
+    public DbSet<District> Districts => Set<District>();
+
+    public DbSet<Upazila> Upazilas => Set<Upazila>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
@@ -110,6 +135,88 @@ public class PortalDbContext(DbContextOptions<PortalDbContext> options) : Identi
             item.Property(i => i.HandledBy).HasMaxLength(450);
             item.Property(i => i.HandledReason).HasMaxLength(500);
             item.HasIndex(i => new { i.State, i.NextAttemptAtUtc });
+        });
+
+        ConfigureConfiguration(builder);
+    }
+
+    /// <summary>
+    /// Reference data for the Admin Configuration feature. Uniqueness is on the normalized comparison values and
+    /// every relationship is restrictive, so the database is the last guard against duplicates and against
+    /// deleting a record that something still refers to.
+    /// </summary>
+    private static void ConfigureConfiguration(ModelBuilder builder)
+    {
+        // Independent catalogs: one globally unique normalized name each.
+        MapRecord<EducationalInstitution>(builder, "EducationalInstitutions", unique: true).Entity<EducationalInstitution>(e =>
+        {
+            e.Property(x => x.Type).HasConversion<string>().HasMaxLength(16).IsRequired();
+            e.Property(x => x.Address).HasMaxLength(NameNormalizer.MaxAddressLength);
+        });
+        MapCode<EducationalInstitution>(builder);
+        MapRecord<EducationBoard>(builder, "EducationBoards", unique: true);
+        MapCode<EducationBoard>(builder);
+        MapRecord<EducationGroup>(builder, "EducationGroups", unique: true);
+        MapRecord<ExaminationType>(builder, "ExaminationTypes", unique: true);
+        MapRecord<Degree>(builder, "Degrees", unique: true);
+        MapCode<Degree>(builder);
+        MapRecord<Semester>(builder, "Semesters", unique: true);
+        MapRecord<AcademicSession>(builder, "AcademicSessions", unique: true);
+        MapRecord<Designation>(builder, "Designations", unique: true);
+        MapCode<Designation>(builder);
+
+        // A Batch name is unique within its Degree only; Session does not change that scope.
+        MapRecord<Batch>(builder, "Batches", unique: false).Entity<Batch>(e =>
+        {
+            e.HasIndex(x => new { x.DegreeId, x.NormalizedName }).IsUnique();
+            e.HasOne<Degree>().WithMany().HasForeignKey(x => x.DegreeId).OnDelete(DeleteBehavior.Restrict);
+            e.HasOne<Semester>().WithMany().HasForeignKey(x => x.StartingSemesterId).OnDelete(DeleteBehavior.Restrict);
+            e.HasOne<AcademicSession>().WithMany().HasForeignKey(x => x.AcademicSessionId).OnDelete(DeleteBehavior.Restrict);
+            e.HasIndex(x => x.StartingSemesterId);
+            e.HasIndex(x => x.AcademicSessionId);
+        });
+
+        // Division names are global; District and Upazila names are unique within their parent.
+        MapRecord<Division>(builder, "Divisions", unique: true);
+        MapRecord<District>(builder, "Districts", unique: false).Entity<District>(e =>
+        {
+            e.HasIndex(x => new { x.DivisionId, x.NormalizedName }).IsUnique();
+            e.HasOne<Division>().WithMany().HasForeignKey(x => x.DivisionId).OnDelete(DeleteBehavior.Restrict);
+        });
+        MapRecord<Upazila>(builder, "Upazilas", unique: false).Entity<Upazila>(e =>
+        {
+            e.HasIndex(x => new { x.DistrictId, x.NormalizedName }).IsUnique();
+            e.HasOne<District>().WithMany().HasForeignKey(x => x.DistrictId).OnDelete(DeleteBehavior.Restrict);
+        });
+    }
+
+    private static ModelBuilder MapRecord<T>(ModelBuilder builder, string table, bool unique) where T : ConfigurationRecord
+    {
+        builder.Entity<T>(e =>
+        {
+            e.ToTable(table);
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).ValueGeneratedNever();
+            e.Property(x => x.Name).HasMaxLength(NameNormalizer.MaxNameLength).IsRequired();
+            e.Property(x => x.NormalizedName).HasMaxLength(NameNormalizer.MaxNameLength).IsRequired();
+            e.Property(x => x.IsActive).IsRequired();
+            var names = e.HasIndex(x => x.NormalizedName);
+            if (unique)
+            {
+                names.IsUnique();
+            }
+        });
+        return builder;
+    }
+
+    /// <summary>An optional code, unique within its own catalog when present (NULLs never collide).</summary>
+    private static void MapCode<T>(ModelBuilder builder) where T : ConfigurationRecord, ICodedRecord
+    {
+        builder.Entity<T>(e =>
+        {
+            e.Property(x => x.Code).HasMaxLength(NameNormalizer.MaxCodeLength);
+            e.Property(x => x.NormalizedCode).HasMaxLength(NameNormalizer.MaxCodeLength);
+            e.HasIndex(x => x.NormalizedCode).IsUnique();
         });
     }
 }

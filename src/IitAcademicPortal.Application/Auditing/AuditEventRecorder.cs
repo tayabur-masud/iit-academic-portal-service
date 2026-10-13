@@ -23,7 +23,10 @@ public sealed class AuditEventRecorder(
             throw new AuditValidationException("Only business events are staged in a unit of work; use RecordSecurityAsync for security events.");
         }
 
-        store.Add(AuditEventFactory.Create(request, context, timeProvider.GetUtcNow().UtcDateTime, strict: true));
+        // A business change is made by the signed-in session, so the actor defaults to the request's. Security events
+        // do not: a failed sign-in records no account even if the caller already holds a session.
+        var staged = request.ActorUserId is null ? request with { ActorUserId = context.ActorUserId } : request;
+        store.Add(AuditEventFactory.Create(staged, context, timeProvider.GetUtcNow().UtcDateTime, strict: true));
     }
 
     public async Task RecordSecurityAsync(AuditEventRequest request)

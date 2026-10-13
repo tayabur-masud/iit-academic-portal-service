@@ -276,4 +276,88 @@ public sealed class AuditEventSearchTests : IDisposable
 
         Assert.Single(page.Items);
     }
+
+    [Fact]
+    public async Task A_numbered_page_returns_its_slice_with_the_total_and_page_count()
+    {
+        var events = Enumerable.Range(0, 7).Select(i => Make(T0.AddSeconds(i), "test.numbered")).ToArray();
+        await SeedAsync(events);
+        using var client = await AdminAsync();
+        var newestFirst = events.OrderByDescending(e => e.OccurredAtUtc).Select(e => e.Id.ToString()).ToList();
+
+        var response = await client.GetAsync("/api/audit-events?eventType=test.numbered&pageSize=3&page=2");
+        var json = await PortalClient.ReadJsonAsync(response);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(7, json.GetProperty("totalCount").GetInt64());
+        Assert.Equal(3, json.GetProperty("totalPages").GetInt32());
+        Assert.Equal(2, json.GetProperty("page").GetInt32());
+        Assert.Equal(newestFirst.Skip(3).Take(3), Ids(json.GetProperty("items").EnumerateArray()));
+
+        var last = await PortalClient.ReadJsonAsync(await client.GetAsync("/api/audit-events?eventType=test.numbered&pageSize=3&page=3"));
+        Assert.Equal(newestFirst.Skip(6), Ids(last.GetProperty("items").EnumerateArray()));
+    }
+
+    [Fact]
+    public async Task A_numbered_page_counts_only_events_matching_the_filters()
+    {
+        await SeedAsync(Make(T0, "test.counted"), Make(T0.AddSeconds(1), "test.counted"), Make(T0.AddSeconds(2), "test.other"));
+        using var client = await AdminAsync();
+
+        var json = await PortalClient.ReadJsonAsync(await client.GetAsync("/api/audit-events?eventType=test.counted&page=1"));
+
+        Assert.Equal(2, json.GetProperty("totalCount").GetInt64());
+        Assert.Equal(1, json.GetProperty("totalPages").GetInt32());
+    }
+
+    [Fact]
+    public async Task A_page_past_the_end_is_empty_but_still_reports_the_total()
+    {
+        await SeedAsync(Make(T0, "test.short"));
+        using var client = await AdminAsync();
+
+        var json = await PortalClient.ReadJsonAsync(await client.GetAsync("/api/audit-events?eventType=test.short&page=9"));
+
+        Assert.Empty(json.GetProperty("items").EnumerateArray());
+        Assert.Equal(1, json.GetProperty("totalCount").GetInt64());
+    }
+
+    [Fact]
+    public async Task Cursor_paging_does_not_count_and_omits_the_total_fields()
+    {
+        await SeedAsync(Make(T0, "test.nocount"));
+        using var client = await AdminAsync();
+
+        var json = await PortalClient.ReadJsonAsync(await client.GetAsync("/api/audit-events?eventType=test.nocount"));
+
+        Assert.False(json.TryGetProperty("totalCount", out _));
+        Assert.False(json.TryGetProperty("totalPages", out _));
+        Assert.False(json.TryGetProperty("page", out _));
+    }
+
+    [Theory]
+    [InlineData("?page=0")]
+    [InlineData("?page=-3")]
+    public async Task An_invalid_page_number_is_rejected(string query)
+    {
+        using var client = await AdminAsync();
+
+        var response = await client.GetAsync("/api/audit-events" + query);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        Assert.True(json.RootElement.GetProperty("errors").TryGetProperty("page", out _));
+    }
+
+    [Fact]
+    public async Task A_page_number_and_a_cursor_cannot_be_combined()
+    {
+        await SeedAsync(Enumerable.Range(0, 3).Select(i => Make(T0.AddSeconds(i), "test.both")).ToArray());
+        using var client = await AdminAsync();
+        var first = await PageAsync(client, "?eventType=test.both&pageSize=1");
+
+        var response = await client.GetAsync($"/api/audit-events?eventType=test.both&pageSize=1&page=2&cursor={first.Next}");
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
 }

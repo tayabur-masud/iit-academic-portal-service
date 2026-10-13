@@ -66,7 +66,16 @@ public sealed record AuditEventResponse(
     }
 }
 
-public sealed record AuditEventPageResponse(IReadOnlyList<AuditEventResponse> Items, string? NextCursor);
+/// <summary>
+/// A page of events. <c>Page</c>, <c>TotalCount</c>, and <c>TotalPages</c> are present only when the request asked for a
+/// numbered page.
+/// </summary>
+public sealed record AuditEventPageResponse(
+    IReadOnlyList<AuditEventResponse> Items,
+    string? NextCursor,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? Page = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] long? TotalCount = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? TotalPages = null);
 
 /// <summary>Query-string filters for audit search. Bound as text so the service validates them uniformly.</summary>
 public sealed class AuditSearchQuery
@@ -93,6 +102,9 @@ public sealed class AuditSearchQuery
 
     public string? Cursor { get; init; }
 
+    /// <summary>A 1-based page number. Cannot be combined with <see cref="Cursor"/>.</summary>
+    public int? Page { get; init; }
+
     public AuditSearchRequest ToRequest() =>
-        new(FromUtc, ToUtc, ActorUserId, Category, EventType, EntityType, EntityId, Outcome, CorrelationId, PageSize, Cursor);
+        new(FromUtc, ToUtc, ActorUserId, Category, EventType, EntityType, EntityId, Outcome, CorrelationId, PageSize, Cursor, Page);
 }

@@ -438,4 +438,48 @@ public sealed class CatalogCrudTests : ConfigurationTestBase
         Assert.Equal(HttpStatusCode.BadRequest, status);
         Assert.True(HasError(problem, "page"));
     }
+
+    [Theory]
+    [InlineData(10)]
+    [InlineData(25)]
+    [InlineData(50)]
+    [InlineData(100)]
+    public async Task Every_page_size_the_screens_offer_is_honored_with_the_right_total_and_page_count(int pageSize)
+    {
+        await Factory.WithDbAsync(async db =>
+        {
+            for (var i = 0; i < 105; i++)
+            {
+                var semester = new IitAcademicPortal.Domain.Configuration.Semester();
+                semester.Rename($"Size {i:000}");
+                db.Semesters.Add(semester);
+            }
+
+            await db.SaveChangesAsync();
+        });
+        using var admin = await AdminAsync();
+        var pages = (105 + pageSize - 1) / pageSize;
+
+        var (_, first) = await Get(admin, "semesters", $"?pageSize={pageSize}&page=1");
+        var (_, last) = await Get(admin, "semesters", $"?pageSize={pageSize}&page={pages}");
+
+        Assert.Equal(pageSize, first.GetProperty("items").GetArrayLength());
+        Assert.Equal(105, first.GetProperty("totalCount").GetInt64());
+        Assert.Equal(pages, first.GetProperty("totalPages").GetInt32());
+        Assert.Equal(105 - (pages - 1) * pageSize, last.GetProperty("items").GetArrayLength());
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(101)]
+    [InlineData(500)]
+    public async Task A_page_size_outside_one_to_one_hundred_is_rejected_in_numbered_mode_too(int pageSize)
+    {
+        using var admin = await AdminAsync();
+
+        var (status, problem) = await Get(admin, "semesters", $"?page=1&pageSize={pageSize}");
+
+        Assert.Equal(HttpStatusCode.BadRequest, status);
+        Assert.True(HasError(problem, "pageSize"));
+    }
 }

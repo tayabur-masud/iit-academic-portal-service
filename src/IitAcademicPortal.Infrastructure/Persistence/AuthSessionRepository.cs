@@ -1,5 +1,6 @@
 using System.Linq.Expressions;
 using IitAcademicPortal.Application.Abstractions;
+using IitAcademicPortal.Domain.Identity;
 using IitAcademicPortal.Domain.Sessions;
 using Microsoft.EntityFrameworkCore;
 
@@ -10,8 +11,10 @@ public sealed class AuthSessionRepository(PortalDbContext db) : IAuthSessionRepo
     public async Task<SessionTouchResult> TouchActiveByDigestAsync(
         string handleDigest, DateTimeOffset now, CancellationToken cancellationToken)
     {
+        // Only accounts that may authenticate keep a usable session: a pending or deactivated account matches nothing.
         var matchingSession = db.AuthSessions
-            .Where(s => s.HandleDigest == handleDigest && s.RevokedAt == null);
+            .Where(s => s.HandleDigest == handleDigest && s.RevokedAt == null)
+            .Where(s => db.Users.Any(u => u.Id == s.UserId && u.AccountStatus == TeacherAccountStatus.Active));
         var idleCutoff = now - AuthSession.IdleTimeout;
         var touched = await matchingSession
             .Where(s => s.LastActivityAt > idleCutoff)
@@ -45,6 +48,14 @@ public sealed class AuthSessionRepository(PortalDbContext db) : IAuthSessionRepo
     public Task<SessionSnapshot?> FindActiveByIdAsync(Guid sessionId, CancellationToken cancellationToken) =>
         FindActiveAsync(s => s.Id == sessionId, cancellationToken);
 
+    public Task<int> RevokeAllActiveForUserAsync(
+        string userId, SessionRevocationReason reason, DateTimeOffset now, CancellationToken cancellationToken) =>
+        db.AuthSessions
+            .Where(s => s.UserId == userId && s.RevokedAt == null)
+            .ExecuteUpdateAsync(setters => setters
+                .SetProperty(s => s.RevokedAt, now)
+                .SetProperty(s => s.RevocationReason, reason), cancellationToken);
+
     public void Add(AuthSession session) => db.AuthSessions.Add(session);
 
     public Task SaveChangesAsync(CancellationToken cancellationToken) => db.SaveChangesAsync(cancellationToken);
@@ -57,6 +68,7 @@ public sealed class AuthSessionRepository(PortalDbContext db) : IAuthSessionRepo
         var row = await db.AuthSessions
             .Where(predicate)
             .Where(s => s.RevokedAt == null)
+            .Where(s => db.Users.Any(u => u.Id == s.UserId && u.AccountStatus == TeacherAccountStatus.Active))
             .Select(s => new
             {
                 Session = s,

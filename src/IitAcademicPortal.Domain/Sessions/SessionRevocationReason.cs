@@ -6,4 +6,5 @@ public enum SessionRevocationReason
     PasswordReset,
     SecurityAction,
     IdleTimeout,
+    TeacherDeactivated,
 }

@@ -3,6 +3,7 @@ using IitAcademicPortal.Application.Auditing;
 using IitAcademicPortal.Application.Authentication;
 using IitAcademicPortal.Application.Configuration;
 using IitAcademicPortal.Application.PasswordRecovery;
+using IitAcademicPortal.Application.Teachers;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -24,6 +25,12 @@ public static class DependencyInjection
         services.AddSingleton<ConfigurationResources>();
         services.AddScoped<CatalogService>();
         services.AddScoped<GeographyImportService>();
+        services.AddScoped<TeacherProvisioningService>();
+        services.AddScoped<TeacherProfileService>();
+        services.AddScoped<TeacherRoleService>();
+        services.AddScoped<TeacherDirectoryService>();
+        services.AddScoped<TeacherLifecycleService>();
+        services.AddScoped<ITeacherCoordinatorRoleSynchronizer, TeacherCoordinatorRoleSynchronizer>();
         services.AddScoped<PortalAuthenticationService>();
         services.AddScoped<PasswordRecoveryService>();
         return services;

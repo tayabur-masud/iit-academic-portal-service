@@ -111,6 +111,7 @@ AND    EXISTS (SELECT 1 FROM "AspNetUserRoles" ur JOIN "AspNetRoles" r ON r."Id"
   reset revokes only the session that performed it.
 - Each session starts in the account's default role (`AspNetUsers.DefaultRole` while assigned, otherwise the
   first assigned role in the order Admin, Coordinator, Teacher, Student).
+- Only an account whose `AccountStatus` is `Active` can sign in or keep using a session. Accounts that existed before the column are `Active`; Teacher Management creates accounts as `PendingCredentialSetup` (no password, no email; they cannot sign in until a later credential-setup feature) and deactivation sets `Deactivated` and revokes every active session. A refused sign-in looks exactly like a wrong password.
 - State-changing requests need the `X-CSRF-Token` header from `GET /api/auth/anti-forgery-token`.
 - Module access uses the `AdminModule`, `StudentModule`, `TeacherModule`, and `CoordinatorModule` policies.
   Record access uses `IAuthorizationService.AuthorizeAsync(User, record, PortalPolicies.RecordAccess)` with
@@ -270,6 +271,16 @@ It is enforced: `AuditedEntityConventionTests` fails the build if an entity in t
 listed, with a reason, as exempt. Today the exempt ones are ASP.NET Core Identity's tables and `PortalUser`, `AuthSession`
 (its own created, activity, and revocation times), `AuditEvent` (append-only, with its own time and actor), and
 `SecurityAuditOutboxItem` (a delivery queue). Add to that list only for infrastructure that records the same facts another way.
+
+## Teacher management (Admin)
+
+Admins add, update, find, and deactivate teachers under `/api/admin/teachers` (contract: `specs/004-teacher-management/contracts/`). A teacher is one `PortalUser` plus one `TeacherProfile`; roles stay in Identity.
+
+- Creating a teacher makes a **pending** account with the Teacher role as its default. No password is set and no email is sent; the account cannot sign in. Reactivating a deactivated teacher is not available until credential setup exists.
+- Role rules: Teacher stays while the profile is active, Admin may be assigned or removed, Student is refused, Coordinator is not editable here, and the default role must be assigned. The last active Admin can neither lose Admin nor be deactivated (409); the check runs under a PostgreSQL advisory lock inside the change's transaction.
+- Deactivation never deletes anything: it makes the profile inactive, disables the account, and revokes all sessions, in one transaction with its audit event.
+- Every multi-step change runs in one transaction with its staged `teacher.*` audit event (`TeacherAuditEventDefinitions`; email and phone are recorded as "changed" only).
+- **For the future batch-coordinator feature:** call `ITeacherCoordinatorRoleSynchronizer.SynchronizeCoordinatorRoleAsync(teacherUserId, hasActiveCoordinatorAssignments, ct)` in the same unit of work as every assignment create, change, or end, after working out whether any active assignment remains, and save once. It stages the Coordinator role and its audit event without saving. Add your own tests proving each assignment operation calls it; Teacher Management only tests the synchronizer itself.
 
 ## Configuration (Admin reference data)
 

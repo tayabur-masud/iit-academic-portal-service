@@ -158,6 +158,26 @@ public class PortalApiFactory : WebApplicationFactory<Program>
         Assert.True((await users.RemoveFromRoleAsync(user!, role)).Succeeded);
     }
 
+    public async Task SetAccountStatusAsync(string email, TeacherAccountStatus status)
+    {
+        await using var scope = Services.CreateAsyncScope();
+        var users = scope.ServiceProvider.GetRequiredService<UserManager<PortalUser>>();
+        var user = await users.FindByEmailAsync(email);
+        user!.AccountStatus = status;
+        Assert.True((await users.UpdateAsync(user)).Succeeded);
+    }
+
+    /// <summary>Stands in for the later credential-setup flow: gives a pending account the standard test password and makes it Active.</summary>
+    public async Task ActivateWithPasswordAsync(string email)
+    {
+        await using var scope = Services.CreateAsyncScope();
+        var users = scope.ServiceProvider.GetRequiredService<UserManager<PortalUser>>();
+        var user = await users.FindByEmailAsync(email);
+        Assert.True((await users.AddPasswordAsync(user!, Password)).Succeeded);
+        user!.AccountStatus = TeacherAccountStatus.Active;
+        Assert.True((await users.UpdateAsync(user)).Succeeded);
+    }
+
     public async Task SetDefaultRoleAsync(string email, string? role)
     {
         await using var scope = Services.CreateAsyncScope();

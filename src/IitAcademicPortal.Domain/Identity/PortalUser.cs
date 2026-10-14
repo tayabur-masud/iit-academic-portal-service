@@ -14,4 +14,10 @@ public class PortalUser : IdentityUser
     /// Set during provisioning; administrators will change it through user management.
     /// </summary>
     public string? DefaultRole { get; set; }
+
+    /// <summary>
+    /// Whether the account may authenticate. Defaults to Active so accounts that predate this column (and accounts created by
+    /// tests and seeding) behave as before; Teacher Management creates accounts as PendingCredentialSetup.
+    /// </summary>
+    public TeacherAccountStatus AccountStatus { get; set; } = TeacherAccountStatus.Active;
 }

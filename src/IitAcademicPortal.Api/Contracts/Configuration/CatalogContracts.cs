@@ -56,11 +56,18 @@ public sealed record ConfigurationItemResponse(
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] Guid? StartingSemesterId,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] Guid? AcademicSessionId,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] Guid? DivisionId,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] Guid? DistrictId)
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] Guid? DistrictId,
+    DateTime CreatedAtUtc,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? CreatedByUserId,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? CreatedBy,
+    DateTime LastModifiedAtUtc,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? LastModifiedByUserId,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? LastModifiedBy)
 {
     public static ConfigurationItemResponse From(ConfigurationItem item) => new(
         item.Id, item.Name, item.IsActive, item.Code, item.Type, item.Address,
-        item.DegreeId, item.StartingSemesterId, item.AcademicSessionId, item.DivisionId, item.DistrictId);
+        item.DegreeId, item.StartingSemesterId, item.AcademicSessionId, item.DivisionId, item.DistrictId,
+        item.CreatedAtUtc, item.CreatedByUserId, item.CreatedBy, item.LastModifiedAtUtc, item.LastModifiedByUserId, item.LastModifiedBy);
 }
 
 /// <summary>

@@ -248,4 +248,50 @@ public sealed class BatchTests : ConfigurationTestBase
         Assert.Single((await Get(admin, "batches", "?status=all")).Body.GetProperty("items").EnumerateArray());
         Assert.NotEqual(Guid.Empty, id);
     }
+
+    [Fact]
+    public async Task A_deleted_batchs_name_can_be_used_again_in_its_degree_and_it_frees_its_references_to_delete()
+    {
+        using var admin = await AdminAsync();
+        var r = await RefsAsync(admin);
+        var batch = await CreateAsync(admin, "batches", Batch("Batch 1", r));
+        Assert.Equal(HttpStatusCode.Conflict, (await Delete(admin, "degrees", r.Degree)).Status);
+
+        Assert.Equal(HttpStatusCode.NoContent, (await Delete(admin, "batches", batch)).Status);
+
+        await CreateAsync(admin, "batches", Batch("Batch 1", r));
+        // The new live batch still blocks deleting the degree; the deleted one no longer does.
+        Assert.Equal(HttpStatusCode.Conflict, (await Delete(admin, "degrees", r.Degree)).Status);
+    }
+
+    [Fact]
+    public async Task A_deleted_degree_semester_or_session_cannot_be_chosen_for_a_batch()
+    {
+        using var admin = await AdminAsync();
+        var r = await RefsAsync(admin);
+        await Delete(admin, "degrees", r.Degree);
+        await Delete(admin, "semesters", r.Semester);
+        await Delete(admin, "academic-sessions", r.Session);
+
+        var (status, problem) = await Post(admin, "batches", Batch("Batch 1", r));
+
+        Assert.Equal(HttpStatusCode.BadRequest, status);
+        Assert.Contains("does not exist", FirstError(problem, "degreeId"));
+        Assert.Contains("does not exist", FirstError(problem, "startingSemesterId"));
+        Assert.Contains("does not exist", FirstError(problem, "academicSessionId"));
+    }
+
+    [Fact]
+    public async Task A_deactivated_dependent_still_blocks_the_delete_but_a_deleted_one_does_not()
+    {
+        using var admin = await AdminAsync();
+        var r = await RefsAsync(admin);
+        var batch = await CreateAsync(admin, "batches", Batch("Batch 1", r));
+        await Put(admin, "batches", batch, Batch("Batch 1", r, active: false));
+
+        Assert.Equal(HttpStatusCode.Conflict, (await Delete(admin, "academic-sessions", r.Session)).Status);
+
+        await Delete(admin, "batches", batch);
+        Assert.Equal(HttpStatusCode.NoContent, (await Delete(admin, "academic-sessions", r.Session)).Status);
+    }
 }

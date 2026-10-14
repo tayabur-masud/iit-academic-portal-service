@@ -47,7 +47,7 @@ public sealed class ConfigurationPostgresTests(PostgresDatabaseFixture fixture) 
         await SaveAsync(
             Named(name, new EducationalInstitution { Type = EducationalInstitutionType.School }),
             Named(name, new EducationBoard()), Named(name, new EducationGroup()), Named(name, new ExaminationType()),
-            Named(name, new Degree()), Named(name, new Semester()), Named(name, new AcademicSession()), Named(name, new Designation()),
+            Named(name, new Degree()), Named(name, new Semester()), Named(name, new AcademicSession()), Named(name, new Designation()), Named(name, new Hall()),
             Named(name, new Division()));
     }
 
@@ -65,6 +65,7 @@ public sealed class ConfigurationPostgresTests(PostgresDatabaseFixture fixture) 
             () => Named(name, new Semester()),
             () => Named(name, new AcademicSession()),
             () => Named(name, new Designation()),
+            () => Named(name, new Hall()),
             () => Named(name, new Division()),
         ];
 
@@ -96,6 +97,7 @@ public sealed class ConfigurationPostgresTests(PostgresDatabaseFixture fixture) 
             (n, c) => CodedNamed(n, c, new EducationBoard()),
             (n, c) => CodedNamed(n, c, new Degree()),
             (n, c) => CodedNamed(n, c, new Designation()),
+            (n, c) => CodedNamed(n, c, new Hall()),
         ];
 
         foreach (var make in makers)

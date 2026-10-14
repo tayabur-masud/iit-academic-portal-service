@@ -1,3 +1,4 @@
+using Microsoft.EntityFrameworkCore;
 using System.Net;
 using System.Text.Json;
 
@@ -9,10 +10,10 @@ public sealed class CatalogCrudTests : ConfigurationTestBase
     public static TheoryData<string> All => new()
     {
         "institutions", "education-boards", "education-groups", "examination-types",
-        "degrees", "semesters", "academic-sessions", "designations",
+        "degrees", "semesters", "academic-sessions", "designations", "halls",
     };
 
-    public static TheoryData<string> Coded => new() { "institutions", "education-boards", "degrees", "designations" };
+    public static TheoryData<string> Coded => new() { "institutions", "education-boards", "degrees", "designations", "halls" };
 
     public static TheoryData<string> NameOnly => new() { "education-groups", "examination-types", "semesters", "academic-sessions" };
 
@@ -481,5 +482,107 @@ public sealed class CatalogCrudTests : ConfigurationTestBase
 
         Assert.Equal(HttpStatusCode.BadRequest, status);
         Assert.True(HasError(problem, "pageSize"));
+    }
+
+    [Fact]
+    public async Task A_hall_has_an_optional_code_and_address_and_depends_on_nothing()
+    {
+        using var admin = await AdminAsync();
+
+        var (status, json) = await Post(admin, "halls", new { name = "  Fazlul Huq Hall ", code = " fh ", address = "  University of Dhaka, Dhaka-1000 " });
+        var (bare, _) = await Post(admin, "halls", new { name = "Another Hall" });
+
+        Assert.Equal(HttpStatusCode.Created, status);
+        Assert.Equal("Fazlul Huq Hall", json.GetProperty("name").GetString());
+        Assert.Equal("fh", json.GetProperty("code").GetString());
+        Assert.Equal("University of Dhaka, Dhaka-1000", json.GetProperty("address").GetString());
+        Assert.Equal(HttpStatusCode.Created, bare);
+        Assert.False((await Get(admin, "halls/" + json.GetProperty("id").GetGuid())).Body.TryGetProperty("type", out _));
+        Assert.Equal(["Another Hall", "Fazlul Huq Hall"], Names((await Get(admin, "halls")).Body));
+    }
+
+    [Fact]
+    public async Task A_hall_address_is_limited_and_a_blank_one_is_absent()
+    {
+        using var admin = await AdminAsync();
+
+        var (status, problem) = await Post(admin, "halls", new { name = "Long Address Hall", address = new string('x', 501) });
+        var (_, blank) = await Post(admin, "halls", new { name = "Blank Address Hall", address = "   " });
+
+        Assert.Equal(HttpStatusCode.BadRequest, status);
+        Assert.True(HasError(problem, "address"));
+        Assert.False(blank.TryGetProperty("address", out _));
+    }
+
+    [Fact]
+    public async Task A_delete_is_soft_the_row_stays_marked_and_the_record_disappears_everywhere()
+    {
+        using var admin = await AdminAsync();
+        var id = await CreateAsync(admin, "halls", new { name = "Soft Hall", code = "SH", address = "Somewhere" });
+
+        Assert.Equal(HttpStatusCode.NoContent, (await Delete(admin, "halls", id)).Status);
+
+        Assert.Equal(HttpStatusCode.NotFound, (await Get(admin, $"halls/{id}")).Status);
+        Assert.DoesNotContain("Soft Hall", Names((await Get(admin, "halls", "?status=all")).Body));
+        Assert.Equal(0, (await Get(admin, "halls", "?page=1&status=all&search=soft")).Body.GetProperty("totalCount").GetInt64());
+        // A deleted record cannot be edited or deleted again, and a second delete does not touch the row.
+        Assert.Equal(HttpStatusCode.NotFound, (await Put(admin, "halls", id, new { name = "Back again" })).Status);
+        Assert.Equal(HttpStatusCode.NotFound, (await Delete(admin, "halls", id)).Status);
+
+        await Factory.WithDbAsync(async db =>
+        {
+            var row = await db.Halls.IgnoreQueryFilters().SingleAsync(h => h.Id == id);
+            Assert.True(row.IsDeleted);
+            Assert.Equal(AdminUserId, row.DeletedByUserId);
+            Assert.InRange(row.DeletedAtUtc!.Value, DateTime.UtcNow.AddMinutes(-2), DateTime.UtcNow.AddMinutes(1));
+            Assert.Equal("Soft Hall", row.Name);
+            Assert.Equal("Somewhere", row.Address);
+        });
+    }
+
+    [Theory]
+    [MemberData(nameof(All))]
+    public async Task A_deleted_records_name_can_be_created_again_in_every_catalog(string route)
+    {
+        using var admin = await AdminAsync();
+        var id = await CreateAsync(admin, route, Body(route, "Recurring"));
+        Assert.Equal(HttpStatusCode.NoContent, (await Delete(admin, route, id)).Status);
+
+        var again = await CreateAsync(admin, route, Body(route, "  RECURRING "));
+
+        Assert.NotEqual(id, again);
+        Assert.Equal(["RECURRING"], Names((await Get(admin, route, "?status=all")).Body));
+        // The live record is protected again.
+        Assert.Equal(HttpStatusCode.BadRequest, (await Post(admin, route, Body(route, "recurring"))).Status);
+    }
+
+    [Theory]
+    [MemberData(nameof(Coded))]
+    public async Task A_deleted_records_code_can_be_used_again(string route)
+    {
+        using var admin = await AdminAsync();
+        var id = await CreateAsync(admin, route, Body(route, "First", code: "CODE-1"));
+        Assert.Equal(HttpStatusCode.BadRequest, (await Post(admin, route, Body(route, "Second", code: "code-1"))).Status);
+        await Delete(admin, route, id);
+
+        Assert.Equal(HttpStatusCode.Created, (await Post(admin, route, Body(route, "Second", code: "code-1"))).Status);
+    }
+
+    [Fact]
+    public async Task Deleting_does_not_change_the_other_records_or_the_totals_of_the_rest()
+    {
+        using var admin = await AdminAsync();
+        foreach (var name in new[] { "a", "b", "c", "d" })
+        {
+            await CreateAsync(admin, "semesters", new { name });
+        }
+
+        var (_, all) = await Get(admin, "semesters", "?pageSize=1&page=2");
+        var b = all.GetProperty("items")[0].GetProperty("id").GetGuid();
+        await Delete(admin, "semesters", b);
+
+        var (_, page) = await Get(admin, "semesters", "?page=1");
+        Assert.Equal(["a", "c", "d"], Names(page));
+        Assert.Equal(3, page.GetProperty("totalCount").GetInt64());
     }
 }

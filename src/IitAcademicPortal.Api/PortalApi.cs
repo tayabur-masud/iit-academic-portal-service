@@ -40,7 +40,9 @@ public static class PortalApi
         services.AddOpenApi();
 
         services.AddHttpContextAccessor();
-        services.AddScoped<IAuditRequestContext, AuditRequestContext>();
+        // Singleton: it only reads the current request through the HTTP context accessor, and the database interceptor that stamps
+        // who changed a record needs it.
+        services.AddSingleton<IAuditRequestContext, AuditRequestContext>();
         services.AddAuditHealth();
 
         // The audit source is the client IP. Forwarded headers are honored only from the configured proxies;

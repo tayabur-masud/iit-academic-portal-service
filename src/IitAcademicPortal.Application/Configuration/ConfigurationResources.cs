@@ -3,18 +3,30 @@ using IitAcademicPortal.Domain.Configuration;
 
 namespace IitAcademicPortal.Application.Configuration;
 
+/// <summary>
+/// Whether live records still refer to a record, which blocks deleting it. A resource nothing refers to passes no function.
+/// </summary>
+public delegate Task<bool> DependentsCheck<in T>(T entity, ConfigurationContext context, CancellationToken cancellationToken);
+
 /// <summary>A catalog with only a name and an active flag.</summary>
-public sealed class NameOnlyResource<T>(string route, string displayName, string eventKey, Func<T> create)
+public sealed class NameOnlyResource<T>(string route, string displayName, string eventKey, Func<T> create, DependentsCheck<T>? dependents = null)
     : ConfigurationResource<T>(route, displayName, eventKey, ConfigurationFields.None) where T : ConfigurationRecord
 {
     protected override T NewRecord() => create();
+
+    protected override Task<bool> HasDependentsAsync(T entity, ConfigurationContext context, CancellationToken cancellationToken) =>
+        dependents is null ? Task.FromResult(false) : dependents(entity, context, cancellationToken);
 }
 
 /// <summary>A catalog with an optional code that is unique within the catalog.</summary>
-public class CodedResource<T>(string route, string displayName, string eventKey, Func<T> create, ConfigurationFields extra = ConfigurationFields.None)
+public class CodedResource<T>(
+    string route, string displayName, string eventKey, Func<T> create, ConfigurationFields extra = ConfigurationFields.None, DependentsCheck<T>? dependents = null)
     : ConfigurationResource<T>(route, displayName, eventKey, ConfigurationFields.Code | extra) where T : ConfigurationRecord, ICodedRecord
 {
     protected override T NewRecord() => create();
+
+    protected override Task<bool> HasDependentsAsync(T entity, ConfigurationContext context, CancellationToken cancellationToken) =>
+        dependents is null ? Task.FromResult(false) : dependents(entity, context, cancellationToken);
 
     protected override Task<bool> CodeTakenAsync(ConfigurationContext context, T entity, string normalizedCode, CancellationToken cancellationToken) =>
         context.Store.CodeExistsAsync<T>(normalizedCode, entity.Id, cancellationToken);
@@ -42,16 +54,7 @@ public sealed class InstitutionResource()
             errors.Add("type", "The type must be School, College, or University.");
         }
 
-        var address = NameNormalizer.DisplayCode(input.Address);
-        if (address is { Length: > NameNormalizer.MaxAddressLength })
-        {
-            errors.Add("address", $"The address can be at most {NameNormalizer.MaxAddressLength} characters.");
-        }
-        else
-        {
-            entity.Address = address;
-        }
-
+        entity.Address = ReadAddress(input.Address, errors);
         return Task.CompletedTask;
     }
 
@@ -63,6 +66,22 @@ public sealed class InstitutionResource()
 
     protected override ConfigurationItem Project(EducationalInstitution entity, ConfigurationItem item) =>
         item with { Type = entity.Type.ToString(), Address = entity.Address };
+}
+
+/// <summary>A university residential hall: an optional unique code and an optional address. Independent of every other resource.</summary>
+public sealed class HallResource()
+    : CodedResource<Hall>("halls", "Hall", "hall", () => new Hall(), ConfigurationFields.Address)
+{
+    protected override Task ApplyAsync(
+        Hall entity, ConfigurationInput input, ConfigurationContext context, ConfigurationErrors errors, bool isNew, CancellationToken cancellationToken)
+    {
+        entity.Address = ReadAddress(input.Address, errors);
+        return Task.CompletedTask;
+    }
+
+    protected override void Describe(Hall entity, Dictionary<string, object?> values) => values["address"] = entity.Address;
+
+    protected override ConfigurationItem Project(Hall entity, ConfigurationItem item) => item with { Address = entity.Address };
 }
 
 /// <summary>
@@ -119,6 +138,9 @@ public sealed class DistrictResource()
     }
 
     protected override Expression<Func<District, bool>>? ParentFilter(Guid parentId) => district => district.DivisionId == parentId;
+
+    protected override Task<bool> HasDependentsAsync(District entity, ConfigurationContext context, CancellationToken cancellationToken) =>
+        context.Store.ExistsAsync<Upazila>(upazila => upazila.DistrictId == entity.Id, cancellationToken);
 
     protected override async Task ApplyAsync(
         District entity, ConfigurationInput input, ConfigurationContext context, ConfigurationErrors errors, bool isNew, CancellationToken cancellationToken) =>

@@ -17,9 +17,13 @@ public abstract class ConfigurationTestBase : IDisposable
     /// <summary>The identifier of the account behind the most recent <see cref="AdminAsync"/> client.</summary>
     protected string AdminUserId { get; private set; } = string.Empty;
 
+    /// <summary>The email of the account behind the most recent <see cref="AdminAsync"/> client.</summary>
+    protected string AdminEmail { get; private set; } = string.Empty;
+
     protected async Task<PortalClient> AdminAsync()
     {
         var email = PortalApiFactory.UniqueEmail("admin");
+        AdminEmail = email;
         AdminUserId = await Factory.CreateUserAsync(email, PortalRoles.Admin);
         var client = Factory.CreatePortalClient();
         await client.SignInSuccessfullyAsync(email);

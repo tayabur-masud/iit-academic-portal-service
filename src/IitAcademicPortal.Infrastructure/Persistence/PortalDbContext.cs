@@ -1,3 +1,4 @@
+using IitAcademicPortal.Domain;
 using IitAcademicPortal.Domain.Auditing;
 using IitAcademicPortal.Domain.Configuration;
 using IitAcademicPortal.Domain.Identity;
@@ -41,6 +42,8 @@ public class PortalDbContext(DbContextOptions<PortalDbContext> options) : Identi
     public DbSet<AcademicSession> AcademicSessions => Set<AcademicSession>();
 
     public DbSet<Designation> Designations => Set<Designation>();
+
+    public DbSet<Hall> Halls => Set<Hall>();
 
     public DbSet<Batch> Batches => Set<Batch>();
 
@@ -138,6 +141,30 @@ public class PortalDbContext(DbContextOptions<PortalDbContext> options) : Identi
         });
 
         ConfigureConfiguration(builder);
+        ConfigureAuditedEntities(builder);
+    }
+
+    /// <summary>
+    /// Maps created and last-modified (who and when) for every entity that derives from <see cref="AuditedEntity"/>, so a new
+    /// entity gets the columns without any mapping of its own. The times default to the database clock for rows added by SQL.
+    /// </summary>
+    private void ConfigureAuditedEntities(ModelBuilder builder)
+    {
+        var now = Database.IsNpgsql() ? "now()" : "CURRENT_TIMESTAMP";
+        var audited = builder.Model.GetEntityTypes()
+            .Where(t => !t.IsOwned() && typeof(AuditedEntity).IsAssignableFrom(t.ClrType))
+            .Select(t => t.ClrType)
+            .ToList();
+        foreach (var type in audited)
+        {
+            builder.Entity(type, e =>
+            {
+                e.Property(nameof(AuditedEntity.CreatedAtUtc)).HasConversion(UtcTimes).HasDefaultValueSql(now).IsRequired();
+                e.Property(nameof(AuditedEntity.CreatedByUserId)).HasMaxLength(AuditedEntity.MaxUserIdLength);
+                e.Property(nameof(AuditedEntity.LastModifiedAtUtc)).HasConversion(UtcTimes).HasDefaultValueSql(now).IsRequired();
+                e.Property(nameof(AuditedEntity.LastModifiedByUserId)).HasMaxLength(AuditedEntity.MaxUserIdLength);
+            });
+        }
     }
 
     /// <summary>
@@ -164,11 +191,13 @@ public class PortalDbContext(DbContextOptions<PortalDbContext> options) : Identi
         MapRecord<AcademicSession>(builder, "AcademicSessions", unique: true);
         MapRecord<Designation>(builder, "Designations", unique: true);
         MapCode<Designation>(builder);
+        MapRecord<Hall>(builder, "Halls", unique: true).Entity<Hall>(e => e.Property(x => x.Address).HasMaxLength(NameNormalizer.MaxAddressLength));
+        MapCode<Hall>(builder);
 
         // A Batch name is unique within its Degree only; Session does not change that scope.
         MapRecord<Batch>(builder, "Batches", unique: false).Entity<Batch>(e =>
         {
-            e.HasIndex(x => new { x.DegreeId, x.NormalizedName }).IsUnique();
+            e.HasIndex(x => new { x.DegreeId, x.NormalizedName }).IsUnique().HasFilter(LiveOnly);
             e.HasOne<Degree>().WithMany().HasForeignKey(x => x.DegreeId).OnDelete(DeleteBehavior.Restrict);
             e.HasOne<Semester>().WithMany().HasForeignKey(x => x.StartingSemesterId).OnDelete(DeleteBehavior.Restrict);
             e.HasOne<AcademicSession>().WithMany().HasForeignKey(x => x.AcademicSessionId).OnDelete(DeleteBehavior.Restrict);
@@ -180,15 +209,25 @@ public class PortalDbContext(DbContextOptions<PortalDbContext> options) : Identi
         MapRecord<Division>(builder, "Divisions", unique: true);
         MapRecord<District>(builder, "Districts", unique: false).Entity<District>(e =>
         {
-            e.HasIndex(x => new { x.DivisionId, x.NormalizedName }).IsUnique();
+            e.HasIndex(x => new { x.DivisionId, x.NormalizedName }).IsUnique().HasFilter(LiveOnly);
             e.HasOne<Division>().WithMany().HasForeignKey(x => x.DivisionId).OnDelete(DeleteBehavior.Restrict);
         });
         MapRecord<Upazila>(builder, "Upazilas", unique: false).Entity<Upazila>(e =>
         {
-            e.HasIndex(x => new { x.DistrictId, x.NormalizedName }).IsUnique();
+            e.HasIndex(x => new { x.DistrictId, x.NormalizedName }).IsUnique().HasFilter(LiveOnly);
             e.HasOne<District>().WithMany().HasForeignKey(x => x.DistrictId).OnDelete(DeleteBehavior.Restrict);
         });
     }
+
+    /// <summary>
+    /// Deleted records stay in their table but drop out of the unique indexes (they apply only to live rows), so a deleted
+    /// record's name and code can be used again. A global query filter hides deleted rows from every query.
+    /// </summary>
+    private const string LiveOnly = "\"IsDeleted\" = false";
+
+    private static readonly ValueConverter<DateTime, DateTime> UtcTimes = new(
+        value => value.ToUniversalTime(),
+        value => DateTime.SpecifyKind(value, DateTimeKind.Utc));
 
     private static ModelBuilder MapRecord<T>(ModelBuilder builder, string table, bool unique) where T : ConfigurationRecord
     {
@@ -200,10 +239,14 @@ public class PortalDbContext(DbContextOptions<PortalDbContext> options) : Identi
             e.Property(x => x.Name).HasMaxLength(NameNormalizer.MaxNameLength).IsRequired();
             e.Property(x => x.NormalizedName).HasMaxLength(NameNormalizer.MaxNameLength).IsRequired();
             e.Property(x => x.IsActive).IsRequired();
+            e.Property(x => x.IsDeleted).IsRequired().HasDefaultValue(false);
+            e.Property(x => x.DeletedAtUtc).HasConversion(UtcTimes);
+            e.Property(x => x.DeletedByUserId).HasMaxLength(450);
+            e.HasQueryFilter(x => !x.IsDeleted);
             var names = e.HasIndex(x => x.NormalizedName);
             if (unique)
             {
-                names.IsUnique();
+                names.IsUnique().HasFilter(LiveOnly);
             }
         });
         return builder;
@@ -216,7 +259,7 @@ public class PortalDbContext(DbContextOptions<PortalDbContext> options) : Identi
         {
             e.Property(x => x.Code).HasMaxLength(NameNormalizer.MaxCodeLength);
             e.Property(x => x.NormalizedCode).HasMaxLength(NameNormalizer.MaxCodeLength);
-            e.HasIndex(x => x.NormalizedCode).IsUnique();
+            e.HasIndex(x => x.NormalizedCode).IsUnique().HasFilter(LiveOnly);
         });
     }
 }

@@ -244,6 +244,33 @@ endpoint for writing events.
    the response.
 4. Keep metadata small (4 KB) and free of personal data you do not need; change summaries are limited to 16 KB.
 
+## Entity conventions: who created it and who changed it, and when
+
+**Every business entity records who created it and when, and who last changed it and when.** To get this, derive the entity from
+`AuditedEntity` (`IitAcademicPortal.Domain`). Nothing else is needed:
+
+- The four columns (`CreatedAtUtc`, `CreatedByUserId`, `LastModifiedAtUtc`, `LastModifiedByUserId`) are mapped for you, so a new
+  migration adds them. The times are required and `timestamptz`; the account ids are optional and at most 450 characters.
+- The database context stamps them on **every** save, from any code path, using the server clock and the signed-in account of the current
+  request. **Never set them yourself, never accept them in a request model, and never add your own copies.** (Unknown JSON fields are
+  rejected, so a client cannot send them.)
+- On insert the last-modified pair equals the created pair, so it is never empty. An update, including a deactivate and a soft delete,
+  moves only the last-modified pair.
+- The "by" values are the stable account id, the same one audit history keeps (no email is copied into the row). They are `null` when no
+  signed-in account made the change: a background job, or rows loaded by a SQL seed script (the times then take the database default,
+  `now()`). The portal shows a `null` account as "System". A row that existed before the columns were added shows the time of that
+  migration and no account.
+- Expose them to clients as `createdAtUtc`, `createdByUserId`, `createdBy`, `lastModifiedAtUtc`, `lastModifiedByUserId`, and
+  `lastModifiedBy`, where `createdBy` and `lastModifiedBy` are the accounts' current emails resolved when the record is read (absent if the
+  account was removed). The Configuration API does this, and its edit screens show a "Record history" panel
+  (`specs/design-system.md`). This does not replace audit events: the audit history says *what* changed and the columns say who and when
+  *last*.
+
+It is enforced: `AuditedEntityConventionTests` fails the build if an entity in the model neither derives from `AuditedEntity` nor is
+listed, with a reason, as exempt. Today the exempt ones are ASP.NET Core Identity's tables and `PortalUser`, `AuthSession`
+(its own created, activity, and revocation times), `AuditEvent` (append-only, with its own time and actor), and
+`SecurityAuditOutboxItem` (a delivery queue). Add to that list only for infrastructure that records the same facts another way.
+
 ## Configuration (Admin reference data)
 
 Admins maintain the reference data other features depend on under `/api/admin/configuration`. Every route needs
@@ -254,6 +281,7 @@ the session's **active** Admin role (401 anonymous, 403 any other active role), 
 |---|---|---|
 | Educational institutions | `institutions` | `type` (School, College, University), optional `code`, optional `address` |
 | Education boards, degrees, designations | `education-boards`, `degrees`, `designations` | optional `code` |
+| Halls (university residential halls) | `halls` | optional `code`, optional `address` |
 | Education groups, examination types, semesters, academic sessions | `education-groups`, `examination-types`, `semesters`, `academic-sessions` | none |
 | Batches | `batches` | `degreeId`, `startingSemesterId`, `academicSessionId`, all required |
 | Divisions, districts, upazilas | `geography/divisions`, `geography/districts`, `geography/upazilas` | `divisionId` (district), `districtId` (upazila); no codes |
@@ -271,8 +299,12 @@ writable record; set `isActive: false` to deactivate.
   a record that was deactivated later is accepted, so the existing link can still be edited.
 - **Deactivate, never cascade**: deactivating a record keeps every link to it and does not touch dependents; it only
   stops new assignments.
-- **Delete** works only while nothing refers to the record (`204`); otherwise it returns `409` and the record is
-  unchanged (every foreign key is `RESTRICT`).
+- **Delete is a soft delete** and works only while no live record refers to the record (`204`); otherwise it returns `409` and the
+  record is unchanged. The row stays in the database, marked with `IsDeleted`, `DeletedAtUtc`, and `DeletedByUserId`, and is hidden from
+  every list, search, lookup, and selector; reading, editing, or deleting it again returns `404`. Nothing in the portal restores it. Its
+  name and code can be used again, because the unique indexes cover only live rows. A deactivated record that refers to another still
+  blocks that delete; a deleted one does not. Every foreign key is still `RESTRICT`, so the database refuses a physical delete of a
+  referenced row.
 - **Lists** take `search`, `status` (`active` default, `inactive`, `all`), `pageSize` (25, up to 100), and, for districts and
   upazilas, `divisionId` or `districtId`. Page them by `page` (1-based; the response then adds `page`, `totalCount`, and
   `totalPages`, which the frontend uses) or by `cursor` (no count, and the pages never shift while new records arrive). The
@@ -283,9 +315,55 @@ writable record; set `isActive: false` to deactivate.
   deactivated|deleted}` event with allowlisted before/after values and commits it with the change; a failed audit write
   rolls the change back. An update that changes nothing writes nothing and records nothing.
 
+### Seed data: halls
+
+`database/postgresql/seed-halls.sql` loads the 23 residential halls and hostels of the University of Dhaka into `Halls`, each with the
+default address "University of Dhaka, Dhaka-1000, Bangladesh" and no code. Run it as the schema owner after the migrations:
+
+```powershell
+psql -d iit_academic_portal -f database/postgresql/seed-halls.sql
+```
+
+- **Fixed identifiers**: each hall's `Id` is a version 5 UUID of its normalized name under a fixed namespace, written out in the script,
+  so every new database gets the same ids (no `gen_random_uuid()`).
+- **Safe to run again**: `ON CONFLICT DO NOTHING` skips a hall that already exists (same id or same live normalized name) and never
+  overwrites a row, so later edits made in the Configuration screen are kept. A seeded hall an Admin deleted stays deleted: its row (and
+  fixed id) is still there, so the script does not bring it back. To change a seeded hall, edit it in the screen.
+- **Not audited**: a SQL script bypasses the application, so it writes no audit events. Halls the Admin creates in the screen are audited as usual.
+- **Created and last modified**: the times take the database default (when the script runs) and the "by" columns stay empty, shown as "System".
+- To add or rename a hall in the script itself, edit the names in `database/postgresql/seed-halls.sql` and add the new row with its own
+  version 5 id; do not change an existing id.
+
+### Seed data: divisions, districts, upazilas
+
+Three SQL scripts in `database/postgresql/` load Bangladesh's geography, built from the owner's own files (`bd-divisions.json`,
+`bd-districts.json`, `bd-upazilas.json`; no official source was cited): `seed-divisions.sql` (8), `seed-districts.sql` (64), and
+`seed-upazilas.sql` (492). Run them as the schema owner after the migrations, **in this order**:
+
+```powershell
+psql -v ON_ERROR_STOP=1 -d iit_academic_portal -f database/postgresql/seed-divisions.sql
+psql -v ON_ERROR_STOP=1 -d iit_academic_portal -f database/postgresql/seed-districts.sql
+psql -v ON_ERROR_STOP=1 -d iit_academic_portal -f database/postgresql/seed-upazilas.sql
+```
+
+- **Fixed identifiers**: each `Id` is a version 5 UUID of its level and normalized names under a fixed namespace, written out in the
+  script, so every new database gets the same ids.
+- **Safe to run again**: `ON CONFLICT DO NOTHING` skips a row that already exists (same id, or the same live normalized name within its parent)
+  and never overwrites one, so later edits in the Configuration screen are kept. A seeded row an Admin deleted stays deleted: its row and
+  fixed id are still there, so the script does not bring it back.
+- **Parents are found by name**: a district's division and an upazila's district are looked up by normalized name among rows that are not
+  deleted (the scripts are plain SQL, so they check `IsDeleted` themselves), so they also work when a parent already exists under another
+  id, and a deleted division or district is never used as a parent. If a parent is missing or was deleted, the script stops with an error
+  and adds nothing.
+- **Not audited**: SQL scripts bypass the application, so they write no audit events.
+- Two exact repeats in Natore (source upazila ids 361 and 362) are left out, and "Raipura, Narsingdi" is stored as "Raipura".
+- The tables must not hold other, different data for the same names; the scripts add what is missing and leave the rest.
+- Once these scripts have run, the geography tables are not empty, so the import endpoint below refuses to run (409). Use it only on
+  empty tables, for example to load an official file that replaces this data after the tables have been emptied.
+
 ### Geography import
 
-No geography dataset ships with the portal. The owner supplies an approved JSON file (schema:
+The SQL scripts above are the repeatable way to load the geography the owner supplied. This endpoint is for a JSON file with an approved source citation (schema:
 `specs/003-configuration/contracts/geographic-seed.schema.json`) with a source citation and version. In Swagger,
 signed in as an Admin:
 

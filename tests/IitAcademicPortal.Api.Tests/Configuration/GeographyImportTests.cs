@@ -194,4 +194,18 @@ public sealed class GeographyImportTests : ConfigurationTestBase
         Assert.True(status is HttpStatusCode.InternalServerError or HttpStatusCode.BadRequest, status.ToString());
         Assert.Equal((0, 0, 0), await CountsAsync());
     }
+
+    [Fact]
+    public async Task Tables_that_hold_only_deleted_rows_do_not_block_an_import()
+    {
+        using var admin = await AdminAsync();
+        var leftover = await CreateAsync(admin, "geography/divisions", new { name = "Alpha" });
+        await Delete(admin, "geography/divisions", leftover);
+
+        var (status, report) = await SendAsync(admin, HttpMethod.Post, Import, Seed());
+
+        Assert.Equal(HttpStatusCode.OK, status);
+        Assert.True(report.GetProperty("targetEmpty").GetBoolean());
+        Assert.Equal(2, (await Get(admin, "geography/divisions", "?page=1")).Body.GetProperty("totalCount").GetInt64());
+    }
 }

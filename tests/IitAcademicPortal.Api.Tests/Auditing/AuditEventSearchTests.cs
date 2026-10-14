@@ -360,4 +360,25 @@ public sealed class AuditEventSearchTests : IDisposable
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
     }
+
+    [Theory]
+    [InlineData(10)]
+    [InlineData(25)]
+    [InlineData(50)]
+    [InlineData(100)]
+    public async Task Every_page_size_the_screens_offer_is_honored_with_the_right_total_and_page_count(int pageSize)
+    {
+        await SeedAsync(Enumerable.Range(0, 105).Select(i => Make(T0.AddSeconds(i), "test.sizes")).ToArray());
+        using var client = await AdminAsync();
+
+        var response = await client.GetAsync($"/api/audit-events?eventType=test.sizes&pageSize={pageSize}&page=1");
+        var json = await PortalClient.ReadJsonAsync(response);
+        var last = await PortalClient.ReadJsonAsync(await client.GetAsync($"/api/audit-events?eventType=test.sizes&pageSize={pageSize}&page={(105 + pageSize - 1) / pageSize}"));
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(pageSize, json.GetProperty("items").GetArrayLength());
+        Assert.Equal(105, json.GetProperty("totalCount").GetInt64());
+        Assert.Equal((105 + pageSize - 1) / pageSize, json.GetProperty("totalPages").GetInt32());
+        Assert.Equal(105 - ((105 + pageSize - 1) / pageSize - 1) * pageSize, last.GetProperty("items").GetArrayLength());
+    }
 }

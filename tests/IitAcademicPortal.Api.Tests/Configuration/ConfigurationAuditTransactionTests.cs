@@ -22,6 +22,7 @@ public sealed class ConfigurationAuditTransactionTests : ConfigurationTestBase
         { "semesters", "semester", "Semester" },
         { "academic-sessions", "academic-session", "Academic session" },
         { "designations", "designation", "Designation" },
+        { "halls", "hall", "Hall" },
     };
 
     private static object Body(string route, string name, bool? active = null) =>

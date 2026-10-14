@@ -14,7 +14,7 @@ public sealed class ConfigurationAuthorizationTests : ConfigurationTestBase
     private static readonly string[] Resources =
     [
         "institutions", "education-boards", "education-groups", "examination-types", "degrees", "semesters",
-        "academic-sessions", "designations", "batches", "geography/divisions", "geography/districts", "geography/upazilas",
+        "academic-sessions", "designations", "halls", "batches", "geography/divisions", "geography/districts", "geography/upazilas",
     ];
 
     public static TheoryData<string, string, string> Calls()
@@ -81,7 +81,7 @@ public sealed class ConfigurationAuthorizationTests : ConfigurationTestBase
             Assert.Equal(0, await db.EducationalInstitutions.CountAsync() + await db.EducationBoards.CountAsync()
                 + await db.EducationGroups.CountAsync() + await db.ExaminationTypes.CountAsync() + await db.Degrees.CountAsync()
                 + await db.Semesters.CountAsync() + await db.AcademicSessions.CountAsync() + await db.Designations.CountAsync()
-                + await db.Batches.CountAsync() + await db.Divisions.CountAsync() + await db.Districts.CountAsync() + await db.Upazilas.CountAsync());
+                + await db.Halls.CountAsync() + await db.Batches.CountAsync() + await db.Divisions.CountAsync() + await db.Districts.CountAsync() + await db.Upazilas.CountAsync());
         });
         Assert.DoesNotContain(await Factory.AuditEventsAsync(), e => e.EventType.StartsWith("configuration.", StringComparison.Ordinal));
     }

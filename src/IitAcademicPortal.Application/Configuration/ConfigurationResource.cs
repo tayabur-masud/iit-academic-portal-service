@@ -8,7 +8,7 @@ using IitAcademicPortal.Domain.Configuration;
 namespace IitAcademicPortal.Application.Configuration;
 
 /// <summary>The services one configuration operation uses, sharing the request's unit of work.</summary>
-public sealed record ConfigurationContext(IConfigurationStore Store, IAuditEventRecorder Recorder);
+public sealed record ConfigurationContext(IConfigurationStore Store, IAuditEventRecorder Recorder, TimeProvider Clock, IAuditRequestContext Request);
 
 /// <summary>Which optional fields a resource accepts. Anything else in a request is rejected.</summary>
 [Flags]
@@ -75,6 +75,10 @@ public abstract class ConfigurationResource<T>(string route, string displayName,
     protected virtual Task ApplyAsync(
         T entity, ConfigurationInput input, ConfigurationContext context, ConfigurationErrors errors, bool isNew, CancellationToken cancellationToken)
         => Task.CompletedTask;
+
+    /// <summary>True when live records still refer to this one, which blocks deleting it (deactivate it instead).</summary>
+    protected virtual Task<bool> HasDependentsAsync(T entity, ConfigurationContext context, CancellationToken cancellationToken) =>
+        Task.FromResult(false);
 
     protected virtual Task<bool> CodeTakenAsync(ConfigurationContext context, T entity, string normalizedCode, CancellationToken cancellationToken)
         => Task.FromResult(false);
@@ -229,19 +233,19 @@ public abstract class ConfigurationResource<T>(string route, string displayName,
             return new ConfigurationResult<ConfigurationItem>(ConfigurationOutcome.NotFound);
         }
 
-        context.Store.Remove(entity);
-        Stage(context, ConfigurationAuditEventDefinitions.Deleted, entity.Id, before: Snapshot(entity), after: null);
-        try
-        {
-            await context.Store.SaveAsync(cancellationToken);
-        }
-        catch (ConfigurationConflictException ex) when (ex.Kind == ConfigurationConflictKind.Referenced)
+        // A record that live records still refer to cannot be deleted: nothing may point at something that looks gone.
+        if (await HasDependentsAsync(entity, context, cancellationToken))
         {
             return new ConfigurationResult<ConfigurationItem>(
                 ConfigurationOutcome.Conflict,
                 Message: $"This {Noun} is used by other records, so it cannot be deleted. Deactivate it instead.");
         }
 
+        // Soft delete: the row stays, marked with when and by whom, and drops out of every list, lookup, and selector.
+        var before = Snapshot(entity);
+        entity.MarkDeleted(context.Clock.GetUtcNow().UtcDateTime, context.Request.ActorUserId);
+        Stage(context, ConfigurationAuditEventDefinitions.Deleted, entity.Id, before, after: null);
+        await context.Store.SaveAsync(cancellationToken);
         return new ConfigurationResult<ConfigurationItem>(ConfigurationOutcome.Deleted);
     }
 
@@ -318,6 +322,19 @@ public abstract class ConfigurationResource<T>(string route, string displayName,
         Reject(input.DistrictId.HasValue, ConfigurationFields.District, "districtId");
     }
 
+    /// <summary>Reads an optional address: trimmed, absent when blank, and limited in length (a field error otherwise).</summary>
+    protected static string? ReadAddress(string? input, ConfigurationErrors errors)
+    {
+        var address = NameNormalizer.DisplayCode(input);
+        if (address is { Length: > NameNormalizer.MaxAddressLength })
+        {
+            errors.Add("address", $"The address can be at most {NameNormalizer.MaxAddressLength} characters.");
+            return null;
+        }
+
+        return address;
+    }
+
     /// <summary>
     /// Checks a reference to another record: it must be supplied, exist, and be active. An unchanged reference is
     /// accepted even if the record has since been deactivated, so an existing link can keep being edited.
@@ -378,6 +395,10 @@ public abstract class ConfigurationResource<T>(string route, string displayName,
             Name = entity.Name,
             IsActive = entity.IsActive,
             Code = (entity as ICodedRecord)?.Code,
+            CreatedAtUtc = entity.CreatedAtUtc,
+            CreatedByUserId = entity.CreatedByUserId,
+            LastModifiedAtUtc = entity.LastModifiedAtUtc,
+            LastModifiedByUserId = entity.LastModifiedByUserId,
         };
         return Project(entity, item);
     }

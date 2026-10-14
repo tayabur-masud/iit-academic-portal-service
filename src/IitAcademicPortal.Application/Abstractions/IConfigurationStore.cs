@@ -6,7 +6,8 @@ namespace IitAcademicPortal.Application.Abstractions;
 
 /// <summary>
 /// Persistence for configuration records. Reads and writes share the request's unit of work, so a staged audit
-/// event is saved by <see cref="SaveAsync"/> in the same transaction as the change.
+/// event is saved by <see cref="SaveAsync"/> in the same transaction as the change. Deleted records are invisible to every
+/// method here: a record is deleted by marking it, never by removing the row.
 /// </summary>
 public interface IConfigurationStore
 {
@@ -47,11 +48,12 @@ public interface IConfigurationStore
 
     void AddRange<T>(IEnumerable<T> entities) where T : ConfigurationRecord;
 
-    void Remove<T>(T entity) where T : ConfigurationRecord;
+    /// <summary>True when any live (not deleted) record of this kind matches. Deleted records are never matched.</summary>
+    Task<bool> ExistsAsync<T>(Expression<Func<T, bool>> predicate, CancellationToken cancellationToken) where T : ConfigurationRecord;
 
     /// <summary>
     /// Commits the pending changes and any staged audit event together.
     /// </summary>
-    /// <exception cref="ConfigurationConflictException">A uniqueness or reference rule in the database rejected the change.</exception>
+    /// <exception cref="ConfigurationConflictException">A uniqueness rule in the database rejected the change.</exception>
     Task SaveAsync(CancellationToken cancellationToken);
 }

@@ -56,6 +56,20 @@ public sealed record ConfigurationItem
     public Guid? DivisionId { get; init; }
 
     public Guid? DistrictId { get; init; }
+
+    public DateTime CreatedAtUtc { get; init; }
+
+    /// <summary>The stable id of the account that created it; null when no signed-in account did (for example a seed script).</summary>
+    public string? CreatedByUserId { get; init; }
+
+    /// <summary>That account's current email, resolved when the record is read; null if there is no account or it was removed.</summary>
+    public string? CreatedBy { get; init; }
+
+    public DateTime LastModifiedAtUtc { get; init; }
+
+    public string? LastModifiedByUserId { get; init; }
+
+    public string? LastModifiedBy { get; init; }
 }
 
 public sealed record ConfigurationQuery(
@@ -120,10 +134,7 @@ public sealed class ConfigurationErrors
     public IReadOnlyDictionary<string, string[]> ToDictionary() => errors.ToDictionary(e => e.Key, e => e.Value.ToArray());
 }
 
-/// <summary>
-/// Raised by the store when the database rejected a change: a duplicate that raced past the application check, or
-/// a delete of a record that something still refers to.
-/// </summary>
+/// <summary>Raised by the store when the database rejected a change: a duplicate that raced past the application check.</summary>
 public sealed class ConfigurationConflictException(ConfigurationConflictKind kind, Exception inner)
     : Exception("A configuration rule in the database rejected the change.", inner)
 {
@@ -133,5 +144,4 @@ public sealed class ConfigurationConflictException(ConfigurationConflictKind kin
 public enum ConfigurationConflictKind
 {
     Duplicate,
-    Referenced,
 }

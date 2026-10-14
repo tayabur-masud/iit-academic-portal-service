@@ -10,7 +10,7 @@ public sealed class CatalogsController(CatalogService service) : ConfigurationCo
     private static readonly HashSet<string> Catalogs = new(StringComparer.Ordinal)
     {
         "institutions", "education-boards", "education-groups", "examination-types",
-        "degrees", "semesters", "academic-sessions", "designations",
+        "degrees", "semesters", "academic-sessions", "designations", "halls",
     };
 
     protected override string? ResourceRoute =>

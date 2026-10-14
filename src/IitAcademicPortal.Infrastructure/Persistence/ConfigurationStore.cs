@@ -14,15 +14,10 @@ namespace IitAcademicPortal.Infrastructure.Persistence;
 public sealed class ConfigurationStore(PortalDbContext db) : IConfigurationStore
 {
     private const string UniqueViolation = "23505";
-    private const string ForeignKeyViolation = "23503";
 
-    // A foreign key declared RESTRICT (as every configuration relationship is) reports its own code, not 23503.
-    private const string RestrictViolation = "23001";
-
-    // SQLite extended result codes, used by the test host: UNIQUE, PRIMARYKEY, FOREIGNKEY.
+    // SQLite extended result codes, used by the test host: UNIQUE and PRIMARYKEY.
     private const int SqliteUnique = 2067;
     private const int SqlitePrimaryKey = 1555;
-    private const int SqliteForeignKey = 787;
 
     public Task<T?> FindAsync<T>(Guid id, CancellationToken cancellationToken) where T : ConfigurationRecord =>
         db.Set<T>().FirstOrDefaultAsync(e => e.Id == id, cancellationToken);
@@ -99,7 +94,8 @@ public sealed class ConfigurationStore(PortalDbContext db) : IConfigurationStore
 
     public void AddRange<T>(IEnumerable<T> entities) where T : ConfigurationRecord => db.Set<T>().AddRange(entities);
 
-    public void Remove<T>(T entity) where T : ConfigurationRecord => db.Set<T>().Remove(entity);
+    public Task<bool> ExistsAsync<T>(Expression<Func<T, bool>> predicate, CancellationToken cancellationToken) where T : ConfigurationRecord =>
+        db.Set<T>().AnyAsync(predicate, cancellationToken);
 
     public async Task SaveAsync(CancellationToken cancellationToken)
     {
@@ -113,37 +109,23 @@ public sealed class ConfigurationStore(PortalDbContext db) : IConfigurationStore
         }
     }
 
-    /// <summary>Recognises a unique or foreign-key violation from PostgreSQL, or from SQLite in the test host.</summary>
+    /// <summary>Recognises a unique violation from PostgreSQL, or from SQLite in the test host.</summary>
     private static ConfigurationConflictKind? Classify(Exception exception)
     {
         for (var inner = exception.InnerException; inner is not null; inner = inner.InnerException)
         {
             if (inner is PostgresException postgres)
             {
-                return postgres.SqlState switch
-                {
-                    UniqueViolation => ConfigurationConflictKind.Duplicate,
-                    ForeignKeyViolation or RestrictViolation => ConfigurationConflictKind.Referenced,
-                    _ => null,
-                };
+                return postgres.SqlState == UniqueViolation ? ConfigurationConflictKind.Duplicate : null;
             }
 
             // The SQLite provider is referenced only by the tests, so its error code is read by name.
             if (inner.GetType().Name == "SqliteException")
             {
                 var extended = inner.GetType().GetProperty("SqliteExtendedErrorCode")?.GetValue(inner) as int?;
-                var kind = extended switch
-                {
-                    SqliteUnique or SqlitePrimaryKey => ConfigurationConflictKind.Duplicate,
-                    SqliteForeignKey => ConfigurationConflictKind.Referenced,
-                    _ => (ConfigurationConflictKind?)null,
-                };
-
-                // Without extended result codes SQLite reports a bare constraint failure; its message says which.
-                return kind
-                    ?? (inner.Message.Contains("FOREIGN KEY", StringComparison.OrdinalIgnoreCase) ? ConfigurationConflictKind.Referenced
-                    : inner.Message.Contains("UNIQUE", StringComparison.OrdinalIgnoreCase) ? ConfigurationConflictKind.Duplicate
-                    : null);
+                return extended is SqliteUnique or SqlitePrimaryKey || inner.Message.Contains("UNIQUE", StringComparison.OrdinalIgnoreCase)
+                    ? ConfigurationConflictKind.Duplicate
+                    : null;
             }
         }
 

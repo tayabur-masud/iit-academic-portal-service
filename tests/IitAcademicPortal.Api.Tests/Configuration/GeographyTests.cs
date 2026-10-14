@@ -179,4 +179,24 @@ public sealed class GeographyTests : ConfigurationTestBase
         Assert.Equal(HttpStatusCode.NotFound, (await Get(admin, "geography/degrees")).Status);
         Assert.Equal(HttpStatusCode.NotFound, (await Get(admin, "geography/batches")).Status);
     }
+
+    [Fact]
+    public async Task A_deleted_district_or_upazila_name_is_free_again_and_a_deleted_division_cannot_be_a_parent()
+    {
+        using var admin = await AdminAsync();
+        var division = await CreateAsync(admin, Divisions, new { name = "A" });
+        var district = await CreateAsync(admin, Districts, new { name = "One", divisionId = division });
+        var upazila = await CreateAsync(admin, Upazilas, new { name = "Sadar", districtId = district });
+
+        Assert.Equal(HttpStatusCode.Conflict, (await Delete(admin, Divisions, division)).Status);
+        Assert.Equal(HttpStatusCode.NoContent, (await Delete(admin, Upazilas, upazila)).Status);
+        await CreateAsync(admin, Upazilas, new { name = "Sadar", districtId = district });
+        Assert.Equal(HttpStatusCode.Conflict, (await Delete(admin, Districts, district)).Status);
+
+        var other = await CreateAsync(admin, Divisions, new { name = "B" });
+        await Delete(admin, Divisions, other);
+        var (status, problem) = await Post(admin, Districts, new { name = "Orphan", divisionId = other });
+        Assert.Equal(HttpStatusCode.BadRequest, status);
+        Assert.Contains("does not exist", FirstError(problem, "divisionId"));
+    }
 }

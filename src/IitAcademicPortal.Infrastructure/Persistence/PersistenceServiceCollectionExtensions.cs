@@ -11,7 +11,12 @@ public static class PersistenceServiceCollectionExtensions
     /// </summary>
     public static IServiceCollection AddPortalDatabase(this IServiceCollection services, Action<DbContextOptionsBuilder> configure)
     {
-        services.AddDbContextFactory<PortalDbContext>(configure);
+        services.AddSingleton<AuditedEntityInterceptor>();
+        services.AddDbContextFactory<PortalDbContext>((provider, options) =>
+        {
+            configure(options);
+            options.AddInterceptors(provider.GetRequiredService<AuditedEntityInterceptor>());
+        });
         services.AddScoped(sp => sp.GetRequiredService<IDbContextFactory<PortalDbContext>>().CreateDbContext());
         return services;
     }

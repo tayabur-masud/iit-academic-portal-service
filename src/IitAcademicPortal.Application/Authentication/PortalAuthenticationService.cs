@@ -52,7 +52,8 @@ public sealed class PortalAuthenticationService(
         }
 
         var passwordValid = await userManager.CheckPasswordAsync(user, password);
-        if (!passwordValid || await userManager.IsLockedOutAsync(user))
+        // A pending or deactivated account fails exactly like a wrong password, so the response reveals nothing about its state.
+        if (!passwordValid || user.AccountStatus != TeacherAccountStatus.Active || await userManager.IsLockedOutAsync(user))
         {
             logger.LogWarning("Sign-in failed for user {UserId}", user.Id);
             await RecordSignInFailureAsync();

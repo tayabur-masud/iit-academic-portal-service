@@ -97,6 +97,9 @@ public sealed class ConfigurationStore(PortalDbContext db) : IConfigurationStore
     public Task<bool> ExistsAsync<T>(Expression<Func<T, bool>> predicate, CancellationToken cancellationToken) where T : ConfigurationRecord =>
         db.Set<T>().AnyAsync(predicate, cancellationToken);
 
+    public Task<bool> DesignationInUseByTeacherAsync(Guid designationId, CancellationToken cancellationToken) =>
+        db.TeacherProfiles.AnyAsync(t => t.DesignationId == designationId, cancellationToken);
+
     public async Task SaveAsync(CancellationToken cancellationToken)
     {
         try

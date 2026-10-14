@@ -3,6 +3,7 @@ using IitAcademicPortal.Domain.Auditing;
 using IitAcademicPortal.Domain.Configuration;
 using IitAcademicPortal.Domain.Identity;
 using IitAcademicPortal.Domain.Sessions;
+using IitAcademicPortal.Domain.Teachers;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
@@ -53,6 +54,8 @@ public class PortalDbContext(DbContextOptions<PortalDbContext> options) : Identi
 
     public DbSet<Upazila> Upazilas => Set<Upazila>();
 
+    public DbSet<TeacherProfile> TeacherProfiles => Set<TeacherProfile>();
+
     protected override void OnModelCreating(ModelBuilder builder)
     {
         base.OnModelCreating(builder);
@@ -60,6 +63,9 @@ public class PortalDbContext(DbContextOptions<PortalDbContext> options) : Identi
         // Email is the sign-in identifier, so a normalized email must resolve to exactly one account.
         builder.Entity<PortalUser>().HasIndex(u => u.NormalizedEmail).HasDatabaseName("EmailIndex").IsUnique();
         builder.Entity<PortalUser>().Property(u => u.DefaultRole).HasMaxLength(32);
+        // Existing accounts migrate as Active; only Teacher Management creates accounts in another state.
+        builder.Entity<PortalUser>().Property(u => u.AccountStatus).HasConversion<string>().HasMaxLength(32)
+            .HasDefaultValue(TeacherAccountStatus.Active).IsRequired();
 
         builder.Entity<IdentityRole>().HasData(RoleCatalog.Select(r => new IdentityRole
         {
@@ -141,8 +147,31 @@ public class PortalDbContext(DbContextOptions<PortalDbContext> options) : Identi
         });
 
         ConfigureConfiguration(builder);
+        ConfigureTeachers(builder);
         ConfigureAuditedEntities(builder);
     }
+
+    /// <summary>
+    /// Teacher profiles: one per account (unique, restrictive link, so an account with a profile cannot be removed), a staff ID
+    /// that is unique across every profile once normalized, and a restrictive optional designation.
+    /// </summary>
+    private static void ConfigureTeachers(ModelBuilder builder) =>
+        builder.Entity<TeacherProfile>(profile =>
+        {
+            profile.ToTable("TeacherProfiles");
+            profile.HasKey(p => p.Id);
+            profile.Property(p => p.Id).ValueGeneratedNever();
+            profile.Property(p => p.UserId).HasMaxLength(AuditedEntity.MaxUserIdLength).IsRequired();
+            profile.Property(p => p.DisplayName).HasMaxLength(NameNormalizer.MaxNameLength).IsRequired();
+            profile.Property(p => p.EmployeeStaffId).HasMaxLength(NameNormalizer.MaxCodeLength);
+            profile.Property(p => p.NormalizedEmployeeStaffId).HasMaxLength(NameNormalizer.MaxCodeLength);
+            profile.Property(p => p.Phone).HasMaxLength(TeacherProfile.MaxPhoneLength);
+            profile.HasIndex(p => p.UserId).IsUnique();
+            profile.HasIndex(p => p.NormalizedEmployeeStaffId).IsUnique().HasFilter("\"NormalizedEmployeeStaffId\" IS NOT NULL");
+            profile.HasIndex(p => p.DesignationId);
+            profile.HasOne<PortalUser>().WithMany().HasForeignKey(p => p.UserId).OnDelete(DeleteBehavior.Restrict);
+            profile.HasOne<Designation>().WithMany().HasForeignKey(p => p.DesignationId).OnDelete(DeleteBehavior.Restrict);
+        });
 
     /// <summary>
     /// Maps created and last-modified (who and when) for every entity that derives from <see cref="AuditedEntity"/>, so a new

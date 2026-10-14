@@ -21,6 +21,13 @@ public interface IAuthSessionRepository
 
     Task<SessionSnapshot?> FindActiveByIdAsync(Guid sessionId, CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Revokes every active session of the account in one statement and returns how many were revoked. It saves on its own,
+    /// so callers needing atomicity run it inside their own transaction.
+    /// </summary>
+    Task<int> RevokeAllActiveForUserAsync(
+        string userId, SessionRevocationReason reason, DateTimeOffset now, CancellationToken cancellationToken);
+
     void Add(AuthSession session);
 
     Task SaveChangesAsync(CancellationToken cancellationToken);

@@ -1,7 +1,12 @@
 using System.Net;
+using IitAcademicPortal.Application.Abstractions;
+using IitAcademicPortal.Application.Auditing;
+using IitAcademicPortal.Application.Teachers;
 using IitAcademicPortal.Api.Tests.Infrastructure;
 using IitAcademicPortal.Domain.Identity;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace IitAcademicPortal.Api.Tests.TeacherManagement;
 
@@ -134,6 +139,45 @@ public sealed class TeacherProfileTests : TeacherTestBase
         Assert.DoesNotContain("222", updated.ChangesJson);
         Assert.Contains("email", updated.ChangesJson);
         Assert.Contains("phone", updated.ChangesJson);
+    }
+
+    [Fact]
+    public async Task A_failed_audit_event_rolls_back_profile_and_identity_email_changes()
+    {
+        using var admin = await AdminAsync();
+        var teacher = await CreateTeacherAsync(admin, name: "Original Name");
+        var replacementEmail = PortalApiFactory.UniqueEmail("rollback");
+        var updatesBefore = (await EventsAsync("teacher.updated")).Count;
+
+        await using (var scope = Factory.Services.CreateAsyncScope())
+        {
+            var provider = scope.ServiceProvider;
+            var service = new TeacherProfileService(
+                provider.GetRequiredService<UserManager<PortalUser>>(),
+                provider.GetRequiredService<ITeacherStore>(),
+                provider.GetRequiredService<TeacherLifecycleService>(),
+                new TeacherProvisioningTests.ThrowingRecorder(),
+                provider.GetRequiredService<IAuditActorDirectory>());
+
+            await Assert.ThrowsAsync<AuditValidationException>(() => service.UpdateAsync(
+                teacher.Id,
+                new TeacherInput("Changed Name", replacementEmail, "NEW-1", "555", null),
+                CancellationToken.None));
+        }
+
+        await Factory.WithDbAsync(async db =>
+        {
+            var profile = await db.TeacherProfiles.SingleAsync(p => p.Id == teacher.Id);
+            var user = await db.Users.SingleAsync(u => u.Id == teacher.UserId);
+            Assert.Equal("Original Name", profile.DisplayName);
+            Assert.Equal(teacher.Email, user.Email);
+            Assert.Equal(teacher.Email, user.UserName);
+            Assert.Equal(teacher.Email.ToUpperInvariant(), user.NormalizedEmail);
+            Assert.Null(profile.EmployeeStaffId);
+            Assert.Null(profile.Phone);
+        });
+        Assert.Equal(0, await UserCountAsync(replacementEmail));
+        Assert.Equal(updatesBefore, (await EventsAsync("teacher.updated")).Count);
     }
 
     [Fact]

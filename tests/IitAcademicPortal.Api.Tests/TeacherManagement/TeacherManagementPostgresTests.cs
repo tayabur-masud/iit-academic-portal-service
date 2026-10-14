@@ -1,11 +1,17 @@
 using IitAcademicPortal.Api.Tests.Infrastructure;
 using IitAcademicPortal.Application.Abstractions;
+using IitAcademicPortal.Application.Auditing;
+using IitAcademicPortal.Application.Teachers;
 using IitAcademicPortal.Domain.Identity;
+using IitAcademicPortal.Domain.Sessions;
 using IitAcademicPortal.Domain.Teachers;
 using IitAcademicPortal.Infrastructure.Persistence;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Npgsql;
 
 namespace IitAcademicPortal.Api.Tests.TeacherManagement;
@@ -187,51 +193,145 @@ public sealed class TeacherManagementPostgresTests(PostgresDatabaseFixture fixtu
     }
 
     [PostgresFact]
-    public async Task Concurrent_removals_cannot_leave_the_portal_without_an_active_Admin()
+    public async Task Concurrent_role_removal_and_deactivation_services_preserve_an_active_Admin()
     {
         for (var round = 0; round < 5; round++)
         {
-            // Only these two accounts count: earlier rounds' Admins are removed from the role by the loop below.
+            // Only the pair in this round count: remove Admin from accounts left by earlier rounds.
             await using (var clean = await Db.OpenAsync(Db.DdlConnectionString))
             {
                 await PostgresTestDatabase.ExecuteAsync(clean,
                     "DELETE FROM \"AspNetUserRoles\" WHERE \"RoleId\" IN (SELECT \"Id\" FROM \"AspNetRoles\" WHERE \"Name\" = 'Admin')");
             }
 
-            var a = await AddUserAsync(TeacherAccountStatus.Active, PortalRoles.Admin);
-            var b = await AddUserAsync(TeacherAccountStatus.Active, PortalRoles.Admin);
-            using var barrier = new Barrier(2);
+            var roleTeacher = await AddUserAsync(TeacherAccountStatus.Active, PortalRoles.Admin, PortalRoles.Teacher);
+            var deactivationTeacher = await AddUserAsync(TeacherAccountStatus.Active, PortalRoles.Admin, PortalRoles.Teacher);
+            var roleProfile = NewProfile(roleTeacher.Id);
+            var deactivationProfile = NewProfile(deactivationTeacher.Id);
+            await using (var db = Db.CreateRuntimeContext())
+            {
+                db.TeacherProfiles.AddRange(roleProfile, deactivationProfile);
+                await db.SaveChangesAsync();
+            }
+
+            using var gate = new ConcurrentLockGate();
 
             var results = await Task.WhenAll(
-                Task.Run(() => TryRemoveAdminAsync(a.Id, barrier)),
-                Task.Run(() => TryRemoveAdminAsync(b.Id, barrier)));
+                Task.Run(() => RunAdminChangeAsync(roleProfile.Id, deactivate: false, gate)),
+                Task.Run(() => RunAdminChangeAsync(deactivationProfile.Id, deactivate: true, gate)));
 
-            Assert.Equal(1, results.Count(removed => removed));
-            await using var db = Db.CreateRuntimeContext();
-            var remaining = await db.UserRoles
-                .Join(db.Roles.Where(r => r.Name == PortalRoles.Admin), ur => ur.RoleId, r => r.Id, (ur, _) => ur.UserId)
-                .ToListAsync();
-            Assert.Single(remaining);
+            Assert.Equal(2, gate.LockCalls);
+            Assert.Equal(1, results.Count(result => result.Outcome == TeacherOutcome.Conflict));
+            Assert.Equal(1, results.Count(result => result.Outcome == TeacherOutcome.Ok));
+            await using var verifyDb = Db.CreateRuntimeContext();
+            var remainingActiveAdmins = await verifyDb.UserRoles
+                .Join(verifyDb.Roles.Where(r => r.Name == PortalRoles.Admin), ur => ur.RoleId, r => r.Id, (ur, _) => ur.UserId)
+                .Join(verifyDb.Users.Where(user => user.AccountStatus == TeacherAccountStatus.Active), userId => userId, user => user.Id, (userId, _) => userId)
+                .CountAsync();
+            Assert.Equal(1, remainingActiveAdmins);
         }
     }
 
-    // The same sequence the role and deactivation services run: transaction, lock, check, change, commit.
-    private async Task<bool> TryRemoveAdminAsync(string userId, Barrier barrier)
+    private async Task<TeacherResult<TeacherDetail>> RunAdminChangeAsync(Guid teacherId, bool deactivate, ConcurrentLockGate gate)
     {
-        await using var db = Db.CreateRuntimeContext();
-        var store = new TeacherStore(db);
-        await using var transaction = await store.BeginTransactionAsync(CancellationToken.None);
-        barrier.SignalAndWait(TimeSpan.FromSeconds(10));
-        await store.LockAdminInvariantAsync(CancellationToken.None);
-        if (!await store.HasOtherActiveAdminAsync(userId, CancellationToken.None))
+        var services = new ServiceCollection();
+        services.AddLogging(builder => builder.SetMinimumLevel(LogLevel.None));
+        services.AddIdentityCore<PortalUser>()
+            .AddRoles<IdentityRole>()
+            .AddEntityFrameworkStores<PortalDbContext>();
+        services.AddScoped(_ => Db.CreateRuntimeContext());
+        services.AddScoped<ITeacherStore>(provider => new BarrierTeacherStore(
+            new TeacherStore(provider.GetRequiredService<PortalDbContext>()), gate));
+        services.AddScoped<IAuthSessionRepository, AuthSessionRepository>();
+        services.AddSingleton<IAuditEventRecorder, NoopAuditRecorder>();
+        services.AddSingleton<IAuditActorDirectory, EmptyAuditActorDirectory>();
+        services.AddSingleton(TimeProvider.System);
+        services.AddScoped<TeacherLifecycleService>();
+        services.AddScoped<TeacherRoleService>();
+
+        await using var provider = services.BuildServiceProvider();
+        await using var scope = provider.CreateAsyncScope();
+        return deactivate
+            ? await scope.ServiceProvider.GetRequiredService<TeacherLifecycleService>()
+                .DeactivateAsync(teacherId, CancellationToken.None)
+            : await scope.ServiceProvider.GetRequiredService<TeacherRoleService>()
+                .UpdateAsync(teacherId, new TeacherRolesInput([PortalRoles.Teacher], null), CancellationToken.None);
+    }
+
+    private sealed class ConcurrentLockGate : IDisposable
+    {
+        private readonly Barrier barrier = new(2);
+        private int lockCalls;
+
+        public int LockCalls => Volatile.Read(ref lockCalls);
+
+        public async Task LockAsync(ITeacherStore store, CancellationToken cancellationToken)
         {
-            return false;
+            Interlocked.Increment(ref lockCalls);
+            if (!barrier.SignalAndWait(TimeSpan.FromSeconds(10)))
+            {
+                throw new TimeoutException("Both application operations must reach the last-Admin lock.");
+            }
+
+            await store.LockAdminInvariantAsync(cancellationToken);
         }
 
-        await Task.Delay(100);
-        await store.StageRoleAsync(userId, PortalRoles.Admin, false, CancellationToken.None);
-        await db.SaveChangesAsync();
-        await transaction.CommitAsync(CancellationToken.None);
-        return true;
+        public void Dispose() => barrier.Dispose();
+    }
+
+    /// <summary>Delegates every operation to the production store while coordinating just before its advisory lock.</summary>
+    private sealed class BarrierTeacherStore(ITeacherStore inner, ConcurrentLockGate gate) : ITeacherStore
+    {
+        public Task<ITeacherTransaction> BeginTransactionAsync(CancellationToken cancellationToken) => inner.BeginTransactionAsync(cancellationToken);
+
+        public Task LockAdminInvariantAsync(CancellationToken cancellationToken) => gate.LockAsync(inner, cancellationToken);
+
+        public Task<TeacherProfile?> FindProfileAsync(Guid teacherId, CancellationToken cancellationToken) => inner.FindProfileAsync(teacherId, cancellationToken);
+
+        public Task<TeacherProfile?> FindProfileByUserAsync(string userId, CancellationToken cancellationToken) => inner.FindProfileByUserAsync(userId, cancellationToken);
+
+        public Task<bool> StaffIdExistsAsync(string normalizedStaffId, Guid exceptProfileId, CancellationToken cancellationToken) =>
+            inner.StaffIdExistsAsync(normalizedStaffId, exceptProfileId, cancellationToken);
+
+        public Task<bool> DesignationAvailableAsync(Guid designationId, CancellationToken cancellationToken) =>
+            inner.DesignationAvailableAsync(designationId, cancellationToken);
+
+        public async Task<bool> HasOtherActiveAdminAsync(string exceptUserId, CancellationToken cancellationToken)
+        {
+            var found = await inner.HasOtherActiveAdminAsync(exceptUserId, cancellationToken);
+            if (found)
+            {
+                await Task.Delay(TimeSpan.FromMilliseconds(100), cancellationToken);
+            }
+
+            return found;
+        }
+
+        public Task<IReadOnlyList<string>> GetRolesAsync(string userId, CancellationToken cancellationToken) => inner.GetRolesAsync(userId, cancellationToken);
+
+        public Task StageRoleAsync(string userId, string roleName, bool assigned, CancellationToken cancellationToken) =>
+            inner.StageRoleAsync(userId, roleName, assigned, cancellationToken);
+
+        public void Add(TeacherProfile profile) => inner.Add(profile);
+
+        public Task SaveAsync(CancellationToken cancellationToken) => inner.SaveAsync(cancellationToken);
+
+        public Task<TeacherDetail?> GetDetailAsync(Guid teacherId, CancellationToken cancellationToken) => inner.GetDetailAsync(teacherId, cancellationToken);
+
+        public Task<TeacherListPage> ListAsync(TeacherListFilter filter, int page, int pageSize, CancellationToken cancellationToken) =>
+            inner.ListAsync(filter, page, pageSize, cancellationToken);
+    }
+
+    private sealed class NoopAuditRecorder : IAuditEventRecorder
+    {
+        public void Stage(AuditEventRequest request) { }
+
+        public Task RecordSecurityAsync(AuditEventRequest request) => Task.CompletedTask;
+    }
+
+    private sealed class EmptyAuditActorDirectory : IAuditActorDirectory
+    {
+        public Task<IReadOnlyDictionary<string, string>> GetEmailsAsync(IReadOnlyCollection<string> userIds, CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyDictionary<string, string>>(new Dictionary<string, string>());
     }
 }

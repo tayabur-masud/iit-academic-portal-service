@@ -6,8 +6,8 @@ Identity 10, EF Core 10, and PostgreSQL 18 through Npgsql 10.x.
 | Project | Layer |
 |---|---|
 | `src/IitAcademicPortal.Domain` | Entities and rules with no infrastructure: `PortalUser`, `PortalRoles`, `AuthSession`, record-boundary interfaces |
-| `src/IitAcademicPortal.Application` | Use cases: sign-in and session state, password recovery, password policy, record-access rules, audit recording and review, Admin configuration (catalogs, batches, geography) |
-| `src/IitAcademicPortal.Infrastructure` | EF Core `PortalDbContext`, migrations, session repository, SMTP email, recovery queue, audit store, security-event outbox worker and fallback sink |
+| `src/IitAcademicPortal.Application` | Use cases: sign-in and session state, password recovery, password policy, record-access rules, audit recording and review, Admin configuration (catalogs, batches, geography), teacher management, notifications (templates, history, resend, reminders) |
+| `src/IitAcademicPortal.Infrastructure` | EF Core `PortalDbContext`, migrations, session repository, email adapters (SMTP, and Brevo for Development only), the durable notification store and dispatch worker, audit store, security-event outbox worker and fallback sink |
 | `src/IitAcademicPortal.Api` | Thin controllers, session-cookie authentication, anti-forgery, policies, rate limiting, problem details, audit review endpoints and health check |
 | `tests/IitAcademicPortal.Api.Tests` | xUnit API tests over the real pipeline (in-memory SQLite) plus unit tests |
 
@@ -50,8 +50,8 @@ dotnet test                                                             # no dat
 Use the `https` profile when running the frontend. Its dev server proxies `/api` to `https://localhost:7286`,
 and a plain `dotnet run` picks the `http` profile, which listens only on `http://localhost:5258`.
 
-In Development, password-recovery emails are written as `.eml` files to `src/IitAcademicPortal.Api/.mail/`
-instead of being sent.
+In Development, emails (password recovery and every other notification) are written as `.eml` files to
+`src/IitAcademicPortal.Api/.mail/` instead of being sent, unless you select the Brevo provider (see "Notifications").
 
 **Swagger UI** opens automatically at `https://localhost:7286/swagger` when you run a launch profile
 (`dotnet run`, or F5 in Visual Studio or VS Code). It renders the built-in OpenAPI document
@@ -91,7 +91,14 @@ AND    EXISTS (SELECT 1 FROM "AspNetUserRoles" ur JOIN "AspNetRoles" r ON r."Id"
 | `ConnectionStrings:Portal` | PostgreSQL connection string (keep it in user secrets or environment variables) |
 | `PasswordRecovery:ResetPageUrl` | Absolute URL of the frontend reset page; required at startup |
 | `PasswordRecovery:ProofLifespan` | How long a recovery proof stays valid (default `01:00:00`) |
+| `PasswordRecovery:RequestLifetime` | How long an accepted recovery request waits to be processed before it is discarded unprocessed (default `01:00:00`) |
 | `Smtp:*` | `Host`, `Port`, `EnableSsl`, `UserName`, `Password`, `FromAddress`; or `PickupDirectory` for a local sink |
+| `Email:Provider` | `Smtp` (default) or `Brevo`. Brevo is Development only: startup fails in any other environment (see "Notifications") |
+| `Brevo:*` | `ApiKey` and `SenderEmail` (user secrets or environment only), `AllowedRecipients` (exact test mailboxes; empty rejects every send), `SenderName`, `RequestTimeout` |
+| `Notifications:PortalUrl` | The sign-in address messages point to (the `portalUrl` placeholder) |
+| `Notifications:LogoUrl` | Absolute https address of the logo at the top of every email (default `{PortalUrl}/images/iit-logo.png`). Mail clients load it from the internet, so it must be publicly reachable |
+| `Notifications:BrandColor`, `PortalName`, `LogoAlt`, `FooterText`, `ButtonLabel` | Email branding (defaults are the IIT values). `BrandColor` is a six-digit hex value such as `#2E3192` with at least 4.5:1 contrast against white; the text values are single lines of at most 300 characters. An invalid value stops the service from starting |
+| `NotificationDispatch:*` | Notification worker: `WorkerEnabled`, `PollInterval` (5 s), `BatchSize` (50), `MaxAttempts` (8), `BaseRetryDelay` (5 s), `MaxRetryDelay` (15 min), `LeaseDuration` (2 min) |
 | `ConnectionStrings:PortalMigrations` | Schema-owner connection used only by `dotnet ef`; the API never uses it |
 | `RateLimiting:Authentication:*` | Per-client `PermitLimit` and `Window` for sign-in and recovery (default 10 per minute) |
 | `ForwardedHeaders:KnownProxies` | IP addresses of trusted reverse proxies. Only requests from these proxies may supply the client address (see below) |
@@ -245,6 +252,53 @@ endpoint for writing events.
    the response.
 4. Keep metadata small (4 KB) and free of personal data you do not need; change summaries are limited to 16 KB.
 
+## Notifications (Admin)
+
+One channel-independent capability sends every account and academic email (specs: `specs/005-notification-management/`). A feature
+asks for a **business event** and its recipients; it never names a channel, a provider, or message wording.
+
+- **Producers** call `INotificationRequestService.RequestAsync(new NotificationEventRequest(eventType, occurrenceId, recipientUserIds, context))`
+  after their own action has committed. It never throws and never fails the action: it fixes the template revision and the address, snapshots
+  ordinary content, and stores the work durably. The `occurrenceId` must be stable and rebuildable from the owner's own data: replaying the same
+  occurrence, recipient, and channel creates nothing new, which is also how an owner reconciles after the operational alarm
+  (`INotificationFailureSignal`, a critical log plus the `notifications.persistence_failures` counter) says work was not retained.
+- **Seven events**, each with one email template: teacher invitation, student invitation, email confirmation, password reset (security messages,
+  always enabled) and results published, feedback window opened, feedback closing reminder (ordinary; an Admin may disable them, and a disabled
+  event is recorded as Suppressed and never replayed).
+- **Delivery** is a background worker (`NotificationDispatchWorker`) over PostgreSQL: leased claims, at most 8 attempts with a 5-second base delay
+  doubling to 15 minutes, then Failed (resendable). A provider outcome that may have been accepted (a timeout, or a worker that died after the call
+  started) is **Uncertain**: never retried and never claimed as sent. `Sent` means the provider accepted it, not that it reached an inbox.
+- **Security content is never stored.** For a security event the owning workflow provides an `ISecurityContentProvider` that decides whether the
+  message is authorized and produces the link for one delivery attempt, in memory. History keeps only safe facts and `contentWithheld: true`;
+  previews show a fixed, nonfunctional link placeholder. Password reset is wired this way (`PasswordResetContentProvider`). The invitation and
+  email-confirmation providers do not exist yet (no secure setup-link flow), so those notifications **fail visibly** with
+  `SetupLinkProviderMissing` or `ConfirmationProviderMissing` and nothing is sent; replace `UnavailableSecurityContentProvider` when the account
+  owner supplies the contract. Never reuse a password-reset proof for an invitation.
+- **Password recovery** keeps its generic public response. An accepted request is retained durably (address protected with Data Protection) until
+  the worker resolves the account; an unknown address leaves no permanent record. The old in-memory queue and worker are gone.
+- **Admin API** (`/api/admin/notification-templates`, `/api/admin/notifications`, `/api/admin/notification-settings/feedback-reminder`): edit
+  templates (each change is an immutable revision; stale edits get 409), preview, search history (keyset batches, 25 by default and 100 at most,
+  UTC half-open date range), safe detail, resend a Failed record (new linked record, `Idempotency-Key`, predecessor untouched), and the single
+  portal-wide reminder lead time. History is append-only: the runtime database role cannot update or delete `NotificationRecords`,
+  `NotificationTemplateRevisions`, or `NotificationAttempts` (see `database/postgresql/runtime-grants.sql`).
+- **Academic producers** (`IAcademicNotificationProducers`, and the reminder scheduler over `IFeedbackWindowSource`) are contract-only: no results
+  or feedback workflow exists yet, so they are tested with fake owners and nothing calls them in production. Each owner must call its contract after
+  its own commit and prove that with its own tests before the behavior is claimed complete.
+
+**Branded layout.** Every email is sent as plain text plus one IIT-branded HTML layout (logo, the subject as heading, the message, a footer). Admins
+edit only the plain-text wording; the layout is built in memory at send time (`EmailLayout`), every value is HTML-encoded, only whole http(s)
+addresses become links (an address on its own line becomes a button), and nothing HTML is stored. Each event keeps its own template; the layout is
+shared so all messages look alike. The logo address, brand color, portal name, logo alt text, footer, and button label are configuration (see the table), validated at startup, and applied to messages not yet sent; they are not editable in the portal. A preview shows the same layout with sample data.
+
+**Email provider.** `Email:Provider` selects the adapter behind `IEmailSender`; no producer changes when it changes. `Smtp` is the default.
+`Brevo` is **Development only**, for synthetic test identities: put the key and sender in user secrets
+(`dotnet user-secrets set "Brevo:ApiKey" "<key>"`, `dotnet user-secrets set "Brevo:SenderEmail" "<verified sender>"`,
+`dotnet user-secrets set "Brevo:AllowedRecipients:0" "<test mailbox>"`), never in source. Every destination must be in `Brevo:AllowedRecipients`
+(exact addresses, case-insensitive); a destination outside the list, or an empty list, is rejected before any HTTP request. The adapter uses only
+the transactional send endpoint, never Brevo's content-retrieval or tracking features. In any other environment the service refuses to start if
+Brevo is selected or a Brevo key is present. A different provider must be chosen and its content retention and access verified against the
+no-stored-security-content rule before Production.
+
 ## Entity conventions: who created it and who changed it, and when
 
 **Every business entity records who created it and when, and who last changed it and when.** To get this, derive the entity from
@@ -386,8 +440,11 @@ signed in as an Admin:
 
 ## Deployment notes
 
-- Persist the ASP.NET Core Data Protection key ring, for example to shared storage. Recovery proofs and
-  anti-forgery tokens depend on it. Session cookies do not.
+- Persist the ASP.NET Core Data Protection key ring, for example to shared storage. Recovery proofs,
+  anti-forgery tokens, and the protected addresses of retained password-recovery requests depend on it. Session cookies do not.
+- Notifications need: a Production email provider other than Brevo (the service will not start with Brevo outside Development), the
+  runtime grants script re-run after the `NotificationManagement` migration, and a named owner for the `notifications.persistence_failures`
+  and `notifications.retry_exhausted` signals (replaying a source occurrence reconciles the first).
 - Behind a reverse proxy, set `ForwardedHeaders:KnownProxies` so rate limiting and the audit source use the real
   client address.
 - Decided (2026-10-09): production uses the `File` fallback sink on a persistent volume, and 1,000,000 events is the

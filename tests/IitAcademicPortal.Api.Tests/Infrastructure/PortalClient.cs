@@ -26,6 +26,9 @@ public sealed class PortalClient(HttpClient http, CookieContainer cookies) : IDi
 
     public Task<HttpResponseMessage> GetAsync(string url) => http.GetAsync(url);
 
+    /// <summary>Sends a request exactly as built, for tests that need a raw body (a malformed or mistyped value).</summary>
+    public Task<HttpResponseMessage> SendRawAsync(HttpRequestMessage request) => http.SendAsync(request);
+
     public Task<HttpResponseMessage> GetCurrentSessionAsync() => http.GetAsync("/api/auth/sessions/current");
 
     public Task<HttpResponseMessage> SignOutAsync() => SendAsync(HttpMethod.Delete, "/api/auth/sessions/current");

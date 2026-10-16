@@ -1061,6 +1061,531 @@ namespace IitAcademicPortal.Infrastructure.Persistence.Migrations
                     b.ToTable("AspNetUsers", (string)null);
                 });
 
+            modelBuilder.Entity("IitAcademicPortal.Domain.Notifications.FeedbackReminderPolicy", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<string>("CreatedByUserId")
+                        .HasMaxLength(450)
+                        .HasColumnType("character varying(450)");
+
+                    b.Property<DateTime>("LastModifiedAtUtc")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<string>("LastModifiedByUserId")
+                        .HasMaxLength(450)
+                        .HasColumnType("character varying(450)");
+
+                    b.Property<int>("LeadTimeMinutes")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("Revision")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("FeedbackReminderPolicies", (string)null);
+                });
+
+            modelBuilder.Entity("IitAcademicPortal.Domain.Notifications.FeedbackReminderSchedule", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CloseAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("DueAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("OccurrenceId")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<int>("PolicyRevision")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("RecipientUserId")
+                        .IsRequired()
+                        .HasMaxLength(450)
+                        .HasColumnType("character varying(450)");
+
+                    b.Property<string>("State")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
+                    b.Property<DateTime>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("OccurrenceId", "RecipientUserId")
+                        .IsUnique();
+
+                    b.HasIndex("State", "DueAtUtc");
+
+                    b.ToTable("FeedbackReminderSchedules", (string)null);
+                });
+
+            modelBuilder.Entity("IitAcademicPortal.Domain.Notifications.NotificationAttempt", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("AttemptNumber")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("CompletedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("FailureCode")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<Guid>("NotificationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Outcome")
+                        .IsRequired()
+                        .HasMaxLength(24)
+                        .HasColumnType("character varying(24)");
+
+                    b.Property<DateTime?>("ProviderAcceptedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("StartedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("NotificationId", "AttemptNumber")
+                        .IsUnique();
+
+                    b.ToTable("NotificationAttempts", (string)null);
+                });
+
+            modelBuilder.Entity("IitAcademicPortal.Domain.Notifications.NotificationDispatchState", b =>
+                {
+                    b.Property<Guid>("NotificationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("AttemptCount")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("FailureCode")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<DateTime?>("LeaseExpiresAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("NextAttemptAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("SendStartedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("SentAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
+                    b.Property<DateTime>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("NotificationId");
+
+                    b.HasIndex("Status", "NextAttemptAtUtc", "LeaseExpiresAtUtc");
+
+                    b.ToTable("NotificationDispatchStates", (string)null);
+                });
+
+            modelBuilder.Entity("IitAcademicPortal.Domain.Notifications.NotificationRecord", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Body")
+                        .HasMaxLength(20000)
+                        .HasColumnType("character varying(20000)");
+
+                    b.Property<string>("Channel")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
+                    b.Property<bool>("ContentWithheld")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Destination")
+                        .HasMaxLength(320)
+                        .HasColumnType("character varying(320)");
+
+                    b.Property<string>("EventType")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<string>("OccurrenceId")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<Guid?>("ParentNotificationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("RecipientUserId")
+                        .IsRequired()
+                        .HasMaxLength(450)
+                        .HasColumnType("character varying(450)");
+
+                    b.Property<string>("RequestIdempotencyKey")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<DateTime>("RequestedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Subject")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<Guid>("TemplateRevisionId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Destination");
+
+                    b.HasIndex("EventType");
+
+                    b.HasIndex("ParentNotificationId");
+
+                    b.HasIndex("RecipientUserId");
+
+                    b.HasIndex("TemplateRevisionId");
+
+                    b.HasIndex("ParentNotificationId", "RequestIdempotencyKey")
+                        .IsUnique()
+                        .HasDatabaseName("IX_NotificationRecords_Resend")
+                        .HasFilter("\"ParentNotificationId\" IS NOT NULL");
+
+                    b.HasIndex("RequestedAtUtc", "Id")
+                        .IsDescending()
+                        .HasDatabaseName("IX_NotificationRecords_RequestedAtUtc_Id");
+
+                    b.HasIndex("EventType", "OccurrenceId", "RecipientUserId", "Channel")
+                        .IsUnique()
+                        .HasDatabaseName("IX_NotificationRecords_Occurrence")
+                        .HasFilter("\"ParentNotificationId\" IS NULL");
+
+                    b.ToTable("NotificationRecords", (string)null);
+                });
+
+            modelBuilder.Entity("IitAcademicPortal.Domain.Notifications.NotificationTemplate", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Channel")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<string>("CreatedByUserId")
+                        .HasMaxLength(450)
+                        .HasColumnType("character varying(450)");
+
+                    b.Property<Guid?>("CurrentRevisionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("CurrentRevisionNumber")
+                        .HasColumnType("integer");
+
+                    b.Property<bool>("Enabled")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("EventType")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<DateTime>("LastModifiedAtUtc")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<string>("LastModifiedByUserId")
+                        .HasMaxLength(450)
+                        .HasColumnType("character varying(450)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("EventType", "Channel")
+                        .IsUnique();
+
+                    b.ToTable("NotificationTemplates", (string)null);
+
+                    b.HasData(
+                        new
+                        {
+                            Id = new Guid("7a110000-0000-4000-8000-000000000001"),
+                            Channel = "Email",
+                            CreatedAtUtc = new DateTime(2026, 10, 16, 0, 0, 0, 0, DateTimeKind.Utc),
+                            CurrentRevisionId = new Guid("7a120000-0000-4000-8000-000000000001"),
+                            CurrentRevisionNumber = 1,
+                            Enabled = true,
+                            EventType = "TeacherInvitation",
+                            LastModifiedAtUtc = new DateTime(2026, 10, 16, 0, 0, 0, 0, DateTimeKind.Utc)
+                        },
+                        new
+                        {
+                            Id = new Guid("7a110000-0000-4000-8000-000000000002"),
+                            Channel = "Email",
+                            CreatedAtUtc = new DateTime(2026, 10, 16, 0, 0, 0, 0, DateTimeKind.Utc),
+                            CurrentRevisionId = new Guid("7a120000-0000-4000-8000-000000000002"),
+                            CurrentRevisionNumber = 1,
+                            Enabled = true,
+                            EventType = "StudentInvitation",
+                            LastModifiedAtUtc = new DateTime(2026, 10, 16, 0, 0, 0, 0, DateTimeKind.Utc)
+                        },
+                        new
+                        {
+                            Id = new Guid("7a110000-0000-4000-8000-000000000003"),
+                            Channel = "Email",
+                            CreatedAtUtc = new DateTime(2026, 10, 16, 0, 0, 0, 0, DateTimeKind.Utc),
+                            CurrentRevisionId = new Guid("7a120000-0000-4000-8000-000000000003"),
+                            CurrentRevisionNumber = 1,
+                            Enabled = true,
+                            EventType = "EmailConfirmation",
+                            LastModifiedAtUtc = new DateTime(2026, 10, 16, 0, 0, 0, 0, DateTimeKind.Utc)
+                        },
+                        new
+                        {
+                            Id = new Guid("7a110000-0000-4000-8000-000000000004"),
+                            Channel = "Email",
+                            CreatedAtUtc = new DateTime(2026, 10, 16, 0, 0, 0, 0, DateTimeKind.Utc),
+                            CurrentRevisionId = new Guid("7a120000-0000-4000-8000-000000000004"),
+                            CurrentRevisionNumber = 1,
+                            Enabled = true,
+                            EventType = "PasswordReset",
+                            LastModifiedAtUtc = new DateTime(2026, 10, 16, 0, 0, 0, 0, DateTimeKind.Utc)
+                        },
+                        new
+                        {
+                            Id = new Guid("7a110000-0000-4000-8000-000000000005"),
+                            Channel = "Email",
+                            CreatedAtUtc = new DateTime(2026, 10, 16, 0, 0, 0, 0, DateTimeKind.Utc),
+                            CurrentRevisionId = new Guid("7a120000-0000-4000-8000-000000000005"),
+                            CurrentRevisionNumber = 1,
+                            Enabled = true,
+                            EventType = "ResultsPublished",
+                            LastModifiedAtUtc = new DateTime(2026, 10, 16, 0, 0, 0, 0, DateTimeKind.Utc)
+                        },
+                        new
+                        {
+                            Id = new Guid("7a110000-0000-4000-8000-000000000006"),
+                            Channel = "Email",
+                            CreatedAtUtc = new DateTime(2026, 10, 16, 0, 0, 0, 0, DateTimeKind.Utc),
+                            CurrentRevisionId = new Guid("7a120000-0000-4000-8000-000000000006"),
+                            CurrentRevisionNumber = 1,
+                            Enabled = true,
+                            EventType = "FeedbackWindowOpened",
+                            LastModifiedAtUtc = new DateTime(2026, 10, 16, 0, 0, 0, 0, DateTimeKind.Utc)
+                        },
+                        new
+                        {
+                            Id = new Guid("7a110000-0000-4000-8000-000000000007"),
+                            Channel = "Email",
+                            CreatedAtUtc = new DateTime(2026, 10, 16, 0, 0, 0, 0, DateTimeKind.Utc),
+                            CurrentRevisionId = new Guid("7a120000-0000-4000-8000-000000000007"),
+                            CurrentRevisionNumber = 1,
+                            Enabled = true,
+                            EventType = "FeedbackClosingReminder",
+                            LastModifiedAtUtc = new DateTime(2026, 10, 16, 0, 0, 0, 0, DateTimeKind.Utc)
+                        });
+                });
+
+            modelBuilder.Entity("IitAcademicPortal.Domain.Notifications.NotificationTemplateRevision", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Body")
+                        .IsRequired()
+                        .HasMaxLength(20000)
+                        .HasColumnType("character varying(20000)");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<string>("CreatedByUserId")
+                        .HasMaxLength(450)
+                        .HasColumnType("character varying(450)");
+
+                    b.Property<DateTime>("LastModifiedAtUtc")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<string>("LastModifiedByUserId")
+                        .HasMaxLength(450)
+                        .HasColumnType("character varying(450)");
+
+                    b.Property<string>("Placeholders")
+                        .IsRequired()
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<int>("RevisionNumber")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Subject")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<Guid>("TemplateId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TemplateId", "RevisionNumber")
+                        .IsUnique();
+
+                    b.ToTable("NotificationTemplateRevisions", (string)null);
+
+                    b.HasData(
+                        new
+                        {
+                            Id = new Guid("7a120000-0000-4000-8000-000000000001"),
+                            Body = "You have been added as a teacher on the IIT Academic Portal.\n\nUse this link to set up your account. It works once and expires in {{expiresIn}}:\n\n{{actionLink}}\n\nIf you were not expecting this invitation, you can ignore this email.",
+                            CreatedAtUtc = new DateTime(2026, 10, 16, 0, 0, 0, 0, DateTimeKind.Utc),
+                            LastModifiedAtUtc = new DateTime(2026, 10, 16, 0, 0, 0, 0, DateTimeKind.Utc),
+                            Placeholders = "actionLink,expiresIn",
+                            RevisionNumber = 1,
+                            Subject = "You are invited to the IIT Academic Portal",
+                            TemplateId = new Guid("7a110000-0000-4000-8000-000000000001")
+                        },
+                        new
+                        {
+                            Id = new Guid("7a120000-0000-4000-8000-000000000002"),
+                            Body = "You have been added as a student on the IIT Academic Portal.\n\nUse this link to set up your account. It works once and expires in {{expiresIn}}:\n\n{{actionLink}}\n\nIf you were not expecting this invitation, you can ignore this email.",
+                            CreatedAtUtc = new DateTime(2026, 10, 16, 0, 0, 0, 0, DateTimeKind.Utc),
+                            LastModifiedAtUtc = new DateTime(2026, 10, 16, 0, 0, 0, 0, DateTimeKind.Utc),
+                            Placeholders = "actionLink,expiresIn",
+                            RevisionNumber = 1,
+                            Subject = "You are invited to the IIT Academic Portal",
+                            TemplateId = new Guid("7a110000-0000-4000-8000-000000000002")
+                        },
+                        new
+                        {
+                            Id = new Guid("7a120000-0000-4000-8000-000000000003"),
+                            Body = "Please confirm that this is your email address for the IIT Academic Portal.\n\nUse this link to confirm it. It works once and expires in {{expiresIn}}:\n\n{{actionLink}}\n\nIf you did not ask for this, you can ignore this email.",
+                            CreatedAtUtc = new DateTime(2026, 10, 16, 0, 0, 0, 0, DateTimeKind.Utc),
+                            LastModifiedAtUtc = new DateTime(2026, 10, 16, 0, 0, 0, 0, DateTimeKind.Utc),
+                            Placeholders = "actionLink,expiresIn",
+                            RevisionNumber = 1,
+                            Subject = "Confirm your email address for the IIT Academic Portal",
+                            TemplateId = new Guid("7a110000-0000-4000-8000-000000000003")
+                        },
+                        new
+                        {
+                            Id = new Guid("7a120000-0000-4000-8000-000000000004"),
+                            Body = "A password reset was requested for your IIT Academic Portal account.\n\nUse this link to choose a new password. It works once and expires in {{expiresIn}}:\n\n{{actionLink}}\n\nIf you did not request this, you can ignore this email. Your password will not change.",
+                            CreatedAtUtc = new DateTime(2026, 10, 16, 0, 0, 0, 0, DateTimeKind.Utc),
+                            LastModifiedAtUtc = new DateTime(2026, 10, 16, 0, 0, 0, 0, DateTimeKind.Utc),
+                            Placeholders = "actionLink,expiresIn",
+                            RevisionNumber = 1,
+                            Subject = "Reset your IIT Academic Portal password",
+                            TemplateId = new Guid("7a110000-0000-4000-8000-000000000004")
+                        },
+                        new
+                        {
+                            Id = new Guid("7a120000-0000-4000-8000-000000000005"),
+                            Body = "Results for {{courseName}} ({{termName}}) have been published.\n\nSign in to the IIT Academic Portal to see your results:\n\n{{portalUrl}}",
+                            CreatedAtUtc = new DateTime(2026, 10, 16, 0, 0, 0, 0, DateTimeKind.Utc),
+                            LastModifiedAtUtc = new DateTime(2026, 10, 16, 0, 0, 0, 0, DateTimeKind.Utc),
+                            Placeholders = "courseName,termName,portalUrl",
+                            RevisionNumber = 1,
+                            Subject = "Results published for {{courseName}}",
+                            TemplateId = new Guid("7a110000-0000-4000-8000-000000000005")
+                        },
+                        new
+                        {
+                            Id = new Guid("7a120000-0000-4000-8000-000000000006"),
+                            Body = "The feedback window \"{{windowName}}\" for {{courseName}} is now open and closes at {{closesAtUtc}}.\n\nSign in to the IIT Academic Portal to give your feedback:\n\n{{portalUrl}}",
+                            CreatedAtUtc = new DateTime(2026, 10, 16, 0, 0, 0, 0, DateTimeKind.Utc),
+                            LastModifiedAtUtc = new DateTime(2026, 10, 16, 0, 0, 0, 0, DateTimeKind.Utc),
+                            Placeholders = "courseName,windowName,closesAtUtc,portalUrl",
+                            RevisionNumber = 1,
+                            Subject = "Feedback is open for {{courseName}}",
+                            TemplateId = new Guid("7a110000-0000-4000-8000-000000000006")
+                        },
+                        new
+                        {
+                            Id = new Guid("7a120000-0000-4000-8000-000000000007"),
+                            Body = "The feedback window \"{{windowName}}\" for {{courseName}} closes at {{closesAtUtc}}.\n\nSign in to the IIT Academic Portal to give your feedback:\n\n{{portalUrl}}",
+                            CreatedAtUtc = new DateTime(2026, 10, 16, 0, 0, 0, 0, DateTimeKind.Utc),
+                            LastModifiedAtUtc = new DateTime(2026, 10, 16, 0, 0, 0, 0, DateTimeKind.Utc),
+                            Placeholders = "courseName,windowName,closesAtUtc,portalUrl",
+                            RevisionNumber = 1,
+                            Subject = "Feedback for {{courseName}} closes soon",
+                            TemplateId = new Guid("7a110000-0000-4000-8000-000000000007")
+                        });
+                });
+
+            modelBuilder.Entity("IitAcademicPortal.Domain.Notifications.PasswordRecoveryRequest", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("AttemptCount")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("ExpiresAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("LeaseExpiresAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ProtectedAddress")
+                        .IsRequired()
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<DateTime>("RequestedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ExpiresAtUtc");
+
+                    b.HasIndex("LeaseExpiresAtUtc");
+
+                    b.ToTable("PasswordRecoveryRequests", (string)null);
+                });
+
             modelBuilder.Entity("IitAcademicPortal.Domain.Sessions.AuthSession", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1364,6 +1889,47 @@ namespace IitAcademicPortal.Infrastructure.Persistence.Migrations
                     b.HasOne("IitAcademicPortal.Domain.Configuration.District", null)
                         .WithMany()
                         .HasForeignKey("DistrictId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("IitAcademicPortal.Domain.Notifications.NotificationAttempt", b =>
+                {
+                    b.HasOne("IitAcademicPortal.Domain.Notifications.NotificationRecord", null)
+                        .WithMany()
+                        .HasForeignKey("NotificationId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("IitAcademicPortal.Domain.Notifications.NotificationDispatchState", b =>
+                {
+                    b.HasOne("IitAcademicPortal.Domain.Notifications.NotificationRecord", null)
+                        .WithOne()
+                        .HasForeignKey("IitAcademicPortal.Domain.Notifications.NotificationDispatchState", "NotificationId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("IitAcademicPortal.Domain.Notifications.NotificationRecord", b =>
+                {
+                    b.HasOne("IitAcademicPortal.Domain.Notifications.NotificationRecord", null)
+                        .WithMany()
+                        .HasForeignKey("ParentNotificationId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("IitAcademicPortal.Domain.Notifications.NotificationTemplateRevision", null)
+                        .WithMany()
+                        .HasForeignKey("TemplateRevisionId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("IitAcademicPortal.Domain.Notifications.NotificationTemplateRevision", b =>
+                {
+                    b.HasOne("IitAcademicPortal.Domain.Notifications.NotificationTemplate", null)
+                        .WithMany()
+                        .HasForeignKey("TemplateId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
                 });

@@ -1,8 +1,10 @@
 using IitAcademicPortal.Application.Abstractions;
 using IitAcademicPortal.Application.Auditing;
 using IitAcademicPortal.Application.Authentication;
+using IitAcademicPortal.Application.Notifications;
 using IitAcademicPortal.Domain.Auditing;
 using IitAcademicPortal.Domain.Identity;
+using IitAcademicPortal.Domain.Notifications;
 using IitAcademicPortal.Domain.Sessions;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.Logging;
@@ -27,42 +29,65 @@ public sealed record PasswordResetOutcome(PasswordResetStatus Status, IReadOnlyL
 /// <summary>
 /// Identity-backed password recovery. Requests never reveal whether an account exists; proofs are
 /// short-lived and single-use (Identity rotates the security stamp on reset, invalidating the proof).
+/// Delivery is not done here: an accepted request is kept durably and, when a worker resolves an eligible account, handed to the
+/// notification capability once. The proof itself is generated later, in memory, for one authorized delivery attempt.
 /// </summary>
 public sealed class PasswordRecoveryService(
     UserManager<PortalUser> userManager,
-    IPasswordRecoveryQueue queue,
-    IEmailSender emailSender,
+    INotificationStore notificationStore,
+    ITransientSecretProtector protector,
+    INotificationRequestService notifications,
+    INotificationFailureSignal failureSignal,
     PortalAuthenticationService authentication,
     IAuditEventRecorder audit,
     IOptions<PasswordRecoveryOptions> options,
+    TimeProvider timeProvider,
     ILogger<PasswordRecoveryService> logger)
 {
     public const string PublicRequestMessage =
         "If an eligible account exists, recovery instructions will be sent to its registered email address.";
 
-    /// <summary>Accepts a request without doing any account-dependent work on the request path.</summary>
-    public void Request(string email) => queue.Enqueue(email);
+    /// <summary>
+    /// Accepts a request and keeps it durably (the submitted address only in protected form) without any account-dependent work, so
+    /// the public response cannot depend on whether an account exists. A failure to retain it never changes the response: it raises
+    /// the operational failure signal instead.
+    /// </summary>
+    public async Task RequestAsync(string email, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var request = PasswordRecoveryRequest.Create(
+                protector.Protect(email.Trim()), timeProvider.GetUtcNow().UtcDateTime, options.Value.RequestLifetime);
+            await notificationStore.AddRecoveryRequestAsync(request, cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            // The exception type only: messages from the database driver can echo values.
+            logger.LogError("A password recovery request could not be retained ({ExceptionType})", ex.GetType().Name);
+            failureSignal.PersistenceFailed(NotificationEventType.PasswordReset, "password-recovery-request", 1, ex.GetType().Name);
+        }
+    }
 
-    /// <summary>Background step: sends a recovery proof to the email recorded on a matching account.</summary>
-    public async Task ProcessRequestAsync(string email, CancellationToken cancellationToken)
+    /// <summary>
+    /// Background step: resolves the account for a retained request. An eligible account gets one password-reset notification
+    /// (idempotent on the request); an unknown address creates no permanent record. Returns false when the work must be retried.
+    /// </summary>
+    public async Task<bool> ProcessRequestAsync(Guid requestId, string email, CancellationToken cancellationToken)
     {
         var user = await userManager.FindByEmailAsync(email);
         if (user?.Email is null)
         {
             logger.LogInformation("Password recovery requested for an address with no eligible account");
-            return;
+            return true;
         }
 
-        var proof = await userManager.GeneratePasswordResetTokenAsync(user);
-        var link = $"{options.Value.ResetPageUrl}?email={Uri.EscapeDataString(user.Email)}&proof={Uri.EscapeDataString(proof)}";
-        var body =
-            "A password reset was requested for your IIT Academic Portal account.\n\n" +
-            $"Use this link to choose a new password. It works once and expires in {FormatLifespan(options.Value.ProofLifespan)}:\n\n" +
-            $"{link}\n\n" +
-            "If you did not request this, you can ignore this email. Your password will not change.";
-
-        await emailSender.SendAsync(new EmailMessage(user.Email, "Reset your IIT Academic Portal password", body), cancellationToken);
-        logger.LogInformation("Password recovery instructions sent for user {UserId}", user.Id);
+        var result = await notifications.RequestAsync(
+            new NotificationEventRequest(NotificationEventType.PasswordReset, requestId.ToString("N"), [user.Id]), cancellationToken);
+        return result.Status != NotificationRequestStatus.PersistenceFailed;
     }
 
     /// <summary>
@@ -120,7 +145,4 @@ public sealed class PasswordRecoveryService(
             ActorUserId = actorUserId,
             Metadata = reason is null ? null : new Dictionary<string, object?> { ["reason"] = reason },
         });
-
-    private static string FormatLifespan(TimeSpan lifespan) =>
-        lifespan.TotalMinutes < 120 ? $"{lifespan.TotalMinutes:0} minutes" : $"{lifespan.TotalHours:0} hours";
 }

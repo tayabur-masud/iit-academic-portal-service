@@ -11,7 +11,7 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 namespace IitAcademicPortal.Infrastructure.Persistence;
 
-public class PortalDbContext(DbContextOptions<PortalDbContext> options) : IdentityDbContext<PortalUser>(options)
+public partial class PortalDbContext(DbContextOptions<PortalDbContext> options) : IdentityDbContext<PortalUser>(options)
 {
     // Fixed keys so the supported role catalog is seeded deterministically by migrations.
     private static readonly (string Id, string Name)[] RoleCatalog =
@@ -148,6 +148,7 @@ public class PortalDbContext(DbContextOptions<PortalDbContext> options) : Identi
 
         ConfigureConfiguration(builder);
         ConfigureTeachers(builder);
+        ConfigureNotifications(builder);
         ConfigureAuditedEntities(builder);
     }
 

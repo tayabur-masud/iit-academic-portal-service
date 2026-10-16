@@ -2,6 +2,7 @@ using System.Net;
 using IitAcademicPortal.Api.Tests.Infrastructure;
 using IitAcademicPortal.Application.Abstractions;
 using IitAcademicPortal.Application.Auditing;
+using IitAcademicPortal.Application.Notifications;
 using IitAcademicPortal.Application.Teachers;
 using IitAcademicPortal.Domain.Auditing;
 using IitAcademicPortal.Domain.Identity;
@@ -230,7 +231,8 @@ public sealed class TeacherProvisioningTests : TeacherTestBase
                 scope.ServiceProvider.GetRequiredService<UserManager<PortalUser>>(),
                 scope.ServiceProvider.GetRequiredService<ITeacherStore>(),
                 new ThrowingRecorder(),
-                scope.ServiceProvider.GetRequiredService<IAuditActorDirectory>());
+                scope.ServiceProvider.GetRequiredService<IAuditActorDirectory>(),
+                scope.ServiceProvider.GetRequiredService<INotificationRequestService>());
 
             await Assert.ThrowsAsync<AuditValidationException>(() =>
                 service.CreateAsync(new TeacherInput("Will Not Exist", email, "X-1", null, null), CancellationToken.None));

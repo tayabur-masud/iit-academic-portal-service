@@ -3,6 +3,7 @@ using IitAcademicPortal.Api.Tests.Infrastructure;
 using IitAcademicPortal.Domain;
 using IitAcademicPortal.Domain.Auditing;
 using IitAcademicPortal.Domain.Identity;
+using IitAcademicPortal.Domain.Notifications;
 using IitAcademicPortal.Domain.Sessions;
 using Microsoft.EntityFrameworkCore;
 
@@ -22,6 +23,11 @@ public sealed class AuditedEntityConventionTests : IDisposable
         [typeof(AuthSession)] = "Infrastructure: a sign-in session; it records CreatedAt, LastActivityAt, and its revocation itself.",
         [typeof(AuditEvent)] = "Append-only audit history; OccurredAtUtc and ActorUserId are its own creator and time, and it is never changed.",
         [typeof(SecurityAuditOutboxItem)] = "Infrastructure: the delivery queue for security events, with its own enqueue, attempt, and delivery times.",
+        [typeof(NotificationRecord)] = "Append-only notification history; RequestedAtUtc is its own time, and it is never changed (the runtime role cannot update it).",
+        [typeof(NotificationDispatchState)] = "Infrastructure: mutable delivery state for one notification, with its own UpdatedAtUtc; the notification record holds who and when.",
+        [typeof(NotificationAttempt)] = "Append-only delivery attempt fact with its own start and completion times; never changed.",
+        [typeof(PasswordRecoveryRequest)] = "Infrastructure: a transient, protected recovery request with its own request and expiry times, deleted after processing.",
+        [typeof(FeedbackReminderSchedule)] = "Infrastructure: scheduling state with its own UpdatedAtUtc; it holds identifiers and times only.",
         [typeof(StandInBusinessEntity)] = "A test-only stand-in entity that exists only in the test model.",
     };
 

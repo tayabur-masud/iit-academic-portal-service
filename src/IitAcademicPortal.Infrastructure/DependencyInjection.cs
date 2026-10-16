@@ -1,9 +1,10 @@
 using IitAcademicPortal.Application.Abstractions;
+using IitAcademicPortal.Application.Notifications;
 using IitAcademicPortal.Application.PasswordRecovery;
 using IitAcademicPortal.Domain.Identity;
 using IitAcademicPortal.Infrastructure.Auditing;
 using IitAcademicPortal.Infrastructure.Email;
-using IitAcademicPortal.Infrastructure.PasswordRecovery;
+using IitAcademicPortal.Infrastructure.Notifications;
 using IitAcademicPortal.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
@@ -52,15 +53,48 @@ public static class DependencyInjection
         services.AddScoped<IAuthSessionRepository, AuthSessionRepository>();
 
         services.Configure<SmtpOptions>(configuration.GetSection(SmtpOptions.SectionName));
-        services.AddSingleton<IEmailSender, SmtpEmailSender>();
-
-        services.AddSingleton<PasswordRecoveryQueue>();
-        services.AddSingleton<IPasswordRecoveryQueue>(sp => sp.GetRequiredService<PasswordRecoveryQueue>());
-        services.AddHostedService<PasswordRecoveryWorker>();
+        services.AddEmailProvider(configuration);
+        AddNotificationInfrastructure(services, configuration);
 
         services.AddAuditInfrastructure(configuration);
 
         return services;
+    }
+
+    // SMTP is the default. Brevo is a Development-only adapter behind the same IEmailSender, so no producer changes when the provider
+    // does; options validation refuses it (and a Brevo key) in any other environment, at startup.
+    public static IServiceCollection AddEmailProvider(this IServiceCollection services, IConfiguration configuration)
+    {
+        services.AddOptions<EmailProviderOptions>()
+            .Bind(configuration.GetSection(EmailProviderOptions.SectionName))
+            .ValidateOnStart();
+        services.AddOptions<BrevoOptions>().Bind(configuration.GetSection(BrevoOptions.SectionName));
+        services.AddSingleton<IValidateOptions<EmailProviderOptions>, EmailProviderOptionsValidator>();
+
+        services.AddSingleton<SmtpEmailSender>();
+        services.AddHttpClient<BrevoEmailSender>((provider, client) =>
+            client.Timeout = provider.GetRequiredService<IOptions<BrevoOptions>>().Value.RequestTimeout);
+        services.AddTransient<IEmailSender>(provider =>
+            string.Equals(provider.GetRequiredService<IOptions<EmailProviderOptions>>().Value.Provider, EmailProviderOptions.Brevo, StringComparison.OrdinalIgnoreCase)
+                ? provider.GetRequiredService<BrevoEmailSender>()
+                : provider.GetRequiredService<SmtpEmailSender>());
+        return services;
+    }
+
+    private static void AddNotificationInfrastructure(IServiceCollection services, IConfiguration configuration)
+    {
+        services.AddScoped<INotificationStore, NotificationStore>();
+        services.AddScoped<IFeedbackReminderStore, FeedbackReminderStore>();
+        services.AddScoped<INotificationAdminStore, NotificationAdminStore>();
+        services.AddScoped<IRecipientDirectory, RecipientDirectory>();
+        services.AddSingleton<ITransientSecretProtector, TransientSecretProtector>();
+
+        services.AddOptions<NotificationDispatchOptions>()
+            .Bind(configuration.GetSection(NotificationDispatchOptions.SectionName))
+            .ValidateOnStart();
+        services.AddSingleton<IValidateOptions<NotificationDispatchOptions>, NotificationDispatchOptionsValidator>();
+        services.AddSingleton<NotificationDispatchProcessor>();
+        services.AddHostedService<NotificationDispatchWorker>();
     }
 
     private static IServiceCollection AddAuditInfrastructure(this IServiceCollection services, IConfiguration configuration)

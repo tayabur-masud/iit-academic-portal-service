@@ -1,7 +1,9 @@
 using IitAcademicPortal.Application.Abstractions;
 using IitAcademicPortal.Application.Auditing;
+using IitAcademicPortal.Application.Notifications;
 using IitAcademicPortal.Domain.Configuration;
 using IitAcademicPortal.Domain.Identity;
+using IitAcademicPortal.Domain.Notifications;
 using IitAcademicPortal.Domain.Teachers;
 using Microsoft.AspNetCore.Identity;
 
@@ -9,14 +11,17 @@ namespace IitAcademicPortal.Application.Teachers;
 
 /// <summary>
 /// Adds a teacher: one portal account (pending, with the Teacher role as its default) and one linked profile, in a single
-/// transaction with the audit event. No password is set and no email is sent; the account cannot sign in until credential setup
-/// (a later feature) activates it. Authorization is the caller's job (the Admin policy on the controllers).
+/// transaction with the audit event. No password is set; the account cannot sign in until credential setup (a later feature)
+/// activates it. After the commit an invitation is requested through the notification capability; that request cannot fail the
+/// action, and delivery needs the account owner's secure setup-link contract, which does not exist yet (see
+/// <see cref="UnavailableSecurityContentProvider"/>), so no invitation can be delivered until it does. Authorization is the caller's job.
 /// </summary>
 public sealed class TeacherProvisioningService(
     UserManager<PortalUser> userManager,
     ITeacherStore store,
     IAuditEventRecorder recorder,
-    IAuditActorDirectory actors)
+    IAuditActorDirectory actors,
+    INotificationRequestService notifications)
 {
     public async Task<TeacherResult<TeacherDetail>> CreateAsync(TeacherInput input, CancellationToken cancellationToken)
     {
@@ -72,6 +77,12 @@ public sealed class TeacherProvisioningService(
         }
 
         await transaction.CommitAsync(cancellationToken);
+
+        // Only a committed account asks for an invitation. The request is durable and independent of delivery: it never throws, and a
+        // rolled-back creation (above) returns before this point, so it requests nothing.
+        await notifications.RequestAsync(
+            new NotificationEventRequest(NotificationEventType.TeacherInvitation, user.Id, [user.Id]), cancellationToken);
+
         var detail = await store.GetDetailAsync(profile.Id, cancellationToken);
         return new TeacherResult<TeacherDetail>(TeacherOutcome.Created, await TeacherSupport.WithActorsAsync(detail!, actors, cancellationToken));
     }

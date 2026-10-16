@@ -10,8 +10,28 @@ public sealed class CapturingEmailSender : IEmailSender
 
     public IReadOnlyCollection<EmailMessage> Messages => messages.ToArray();
 
+    /// <summary>Lets a waiting test drive the notification worker, which does not run in the background under test.</summary>
+    public Func<Task>? Pump { get; set; }
+
+    /// <summary>
+    /// A scripted provider outcome. Return null to accept the message, or throw: an <see cref="EmailDeliveryException"/> for a
+    /// classified failure, or any other exception for an unclassified (retryable) one. The message is recorded only when accepted.
+    /// </summary>
+    public Func<EmailMessage, Exception?>? Behavior { get; set; }
+
+    /// <summary>Every send attempt, accepted or not, so tests can prove how many provider calls were made.</summary>
+    public int Attempts => Volatile.Read(ref attempts);
+
+    private int attempts;
+
     public Task SendAsync(EmailMessage message, CancellationToken cancellationToken)
     {
+        Interlocked.Increment(ref attempts);
+        if (Behavior?.Invoke(message) is { } failure)
+        {
+            throw failure;
+        }
+
         messages.Enqueue(message);
         return Task.CompletedTask;
     }
@@ -21,6 +41,11 @@ public sealed class CapturingEmailSender : IEmailSender
         var deadline = DateTime.UtcNow.AddSeconds(10);
         while (DateTime.UtcNow < deadline)
         {
+            if (Pump is not null)
+            {
+                await Pump();
+            }
+
             var message = messages.FirstOrDefault(m => string.Equals(m.To, recipient, StringComparison.OrdinalIgnoreCase));
             if (message is not null)
             {

@@ -31,12 +31,13 @@ public sealed partial class AuditRetentionTests : IDisposable
     }
 
     [Fact]
-    public void The_only_background_workers_deliver_security_events_and_send_recovery_email()
+    public void The_only_background_workers_deliver_security_events_and_notifications()
     {
         var workers = factory.Services.GetServices<IHostedService>().Select(s => s.GetType().Name).ToList();
 
         Assert.Contains("SecurityAuditOutboxWorker", workers);
-        Assert.Contains("PasswordRecoveryWorker", workers);
+        Assert.Contains("NotificationDispatchWorker", workers);
+        Assert.DoesNotContain("PasswordRecoveryWorker", workers);
         Assert.DoesNotContain(workers, name => ForbiddenNames.Any(f => name.Contains(f, StringComparison.OrdinalIgnoreCase)));
     }
 

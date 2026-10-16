@@ -19,6 +19,14 @@ REVOKE UPDATE, DELETE, TRUNCATE ON "AuditEvents" FROM :"runtime_role";
 -- discarded silently. Operator recovery runs as the schema owner (audit-outbox-recovery.sql).
 REVOKE DELETE, TRUNCATE ON "SecurityAuditOutbox" FROM :"runtime_role";
 
+-- Notification history is append-only for the runtime role: records, template revisions, and delivery attempts can be added and read,
+-- never changed or removed. The runtime role may still UPDATE "NotificationDispatchStates" (workers claim work and advance status
+-- there), the template pointer in "NotificationTemplates", and the transient recovery and reminder-schedule tables. Resends are new
+-- records, never edits to the failed predecessor.
+REVOKE UPDATE, DELETE, TRUNCATE ON "NotificationRecords" FROM :"runtime_role";
+REVOKE UPDATE, DELETE, TRUNCATE ON "NotificationTemplateRevisions" FROM :"runtime_role";
+REVOKE UPDATE, DELETE, TRUNCATE ON "NotificationAttempts" FROM :"runtime_role";
+
 -- Migration history belongs to the schema owner.
 REVOKE ALL ON "__EFMigrationsHistory" FROM :"runtime_role";
 

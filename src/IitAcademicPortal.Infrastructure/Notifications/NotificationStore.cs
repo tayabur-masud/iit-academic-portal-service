@@ -20,17 +20,17 @@ public sealed class NotificationStore(IDbContextFactory<PortalDbContext> factory
     private const int SqliteUnique = 2067;
     private const int SqlitePrimaryKey = 1555;
 
-    public async Task<TemplateSnapshot?> GetTemplateAsync(NotificationEventType eventType, CancellationToken cancellationToken)
+    public async Task<IReadOnlyList<TemplateSnapshot>> GetTemplatesAsync(NotificationEventType eventType, CancellationToken cancellationToken)
     {
         await using var db = await factory.CreateDbContextAsync(cancellationToken);
         return await (
             from template in db.NotificationTemplates.AsNoTracking()
             join revision in db.NotificationTemplateRevisions.AsNoTracking() on template.CurrentRevisionId equals revision.Id
-            where template.EventType == eventType && template.Channel == NotificationChannel.Email
+            where template.EventType == eventType
             select new TemplateSnapshot(
-                template.Id, template.EventType, template.Enabled, revision.Id, revision.RevisionNumber,
+                template.Id, template.EventType, template.Channel, template.Enabled, revision.Id, revision.RevisionNumber,
                 revision.Subject, revision.Body, revision.Placeholders))
-            .FirstOrDefaultAsync(cancellationToken);
+            .ToListAsync(cancellationToken);
     }
 
     public async Task<AcceptResult> AcceptAsync(NotificationRecord record, NotificationDispatchState state, CancellationToken cancellationToken)
@@ -96,7 +96,7 @@ public sealed class NotificationStore(IDbContextFactory<PortalDbContext> factory
                 join revision in db.NotificationTemplateRevisions.AsNoTracking() on record.TemplateRevisionId equals revision.Id
                 where record.Id == id
                 select new ClaimedNotification(
-                    record.Id, record.EventType, record.RecipientUserId, record.Destination, record.Subject, record.Body,
+                    record.Id, record.EventType, record.Channel, record.RecipientUserId, record.Destination, record.Subject, record.Body,
                     record.TemplateRevisionId, revision.Subject, revision.Body, candidate.AttemptCount))
                 .FirstAsync(cancellationToken);
             toSend.Add(row);

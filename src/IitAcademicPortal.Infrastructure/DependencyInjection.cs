@@ -87,6 +87,9 @@ public static class DependencyInjection
         services.AddScoped<IFeedbackReminderStore, FeedbackReminderStore>();
         services.AddScoped<INotificationAdminStore, NotificationAdminStore>();
         services.AddScoped<IRecipientDirectory, RecipientDirectory>();
+
+        // Email is the only delivery channel. Another channel is a new adapter registered here, with a seeded template; no producer changes.
+        services.AddScoped<IDeliveryChannel, EmailDeliveryChannel>();
         services.AddSingleton<ITransientSecretProtector, TransientSecretProtector>();
 
         services.AddOptions<NotificationDispatchOptions>()

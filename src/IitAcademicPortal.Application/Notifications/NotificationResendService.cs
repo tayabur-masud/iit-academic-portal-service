@@ -77,7 +77,7 @@ public sealed partial class NotificationResendService(
         var now = timeProvider.GetUtcNow().UtcDateTime;
         var record = NotificationRecord.Create(
             predecessor.EventType, predecessor.OccurrenceId, predecessor.RecipientUserId, predecessor.Destination,
-            predecessor.TemplateRevisionId, now, predecessor.Subject, predecessor.Body, predecessor.Id, key);
+            predecessor.TemplateRevisionId, now, predecessor.Subject, predecessor.Body, predecessor.Id, key, predecessor.Channel);
         store.AddNotification(record, NotificationDispatchState.Create(record.Id, NotificationStatus.Pending, now));
         recorder.Stage(new AuditEventRequest(NotificationAuditEventDefinitions.ResendRequested, AuditOutcome.Success)
         {

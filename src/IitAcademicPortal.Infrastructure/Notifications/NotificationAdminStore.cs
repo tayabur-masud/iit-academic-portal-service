@@ -14,7 +14,8 @@ public sealed class NotificationAdminStore(PortalDbContext db) : INotificationAd
 {
     public async Task<IReadOnlyList<TemplateWithRevision>> ListTemplatesAsync(CancellationToken cancellationToken)
     {
-        var templates = await db.NotificationTemplates.AsNoTracking().ToListAsync(cancellationToken);
+        // The Admin screens manage the email templates; templates of any other channel are not shown here.
+        var templates = await db.NotificationTemplates.AsNoTracking().Where(t => t.Channel == NotificationChannel.Email).ToListAsync(cancellationToken);
         var revisionIds = templates.Select(t => t.CurrentRevisionId).OfType<Guid>().ToList();
         var revisions = await db.NotificationTemplateRevisions.AsNoTracking().Where(r => revisionIds.Contains(r.Id)).ToDictionaryAsync(r => r.Id, cancellationToken);
         return templates.Where(t => t.CurrentRevisionId is { } id && revisions.ContainsKey(id))

@@ -21,7 +21,6 @@ namespace IitAcademicPortal.Infrastructure.Notifications;
 public sealed class NotificationDispatchProcessor(
     IServiceScopeFactory scopeFactory,
     IOptions<NotificationDispatchOptions> options,
-    IOptions<NotificationOptions> notificationOptions,
     TimeProvider timeProvider,
     INotificationFailureSignal failureSignal,
     NotificationMetrics metrics,
@@ -180,20 +179,27 @@ public sealed class NotificationDispatchProcessor(
             return;
         }
 
-        // 2. Mark the provider call as started. If this worker dies after this point, acceptance is unknown (Uncertain), not retried.
+        // 2. The channel that delivers it. A notification whose channel has no adapter cannot be delivered, so it fails visibly.
+        var channel = services.GetServices<IDeliveryChannel>().FirstOrDefault(c => c.Channel == notification.Channel);
+        if (channel is null)
+        {
+            await CompleteAsync(store, notification, attemptNumber, startedAt, DeliveryAttemptOutcome.PermanentFailure, "ChannelUnavailable", cancellationToken);
+            return;
+        }
+
+        // 3. Mark the call as started. If this worker dies after this point, acceptance is unknown (Uncertain), not retried.
         if (!await store.BeginSendAsync(notification.Id, timeProvider.GetUtcNow().UtcDateTime, cancellationToken))
         {
             return;
         }
 
-        // 3. The provider call, and what it means.
+        // 4. The channel call, and what it means.
         var outcome = DeliveryAttemptOutcome.Accepted;
         string? failureCode = null;
         try
         {
-            // The branded HTML is built here, in memory, from the plain text; it is never stored. The plain text is sent alongside it.
-            var html = EmailLayout.Render(subject, body, notificationOptions.Value.Branding);
-            await services.GetRequiredService<IEmailSender>().SendAsync(new EmailMessage(notification.Destination, subject, body, html), cancellationToken);
+            // Anything specific to the channel (for email, the branded HTML built in memory) happens inside the channel.
+            await channel.SendAsync(new ChannelMessage(notification.Destination, subject, body), cancellationToken);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {

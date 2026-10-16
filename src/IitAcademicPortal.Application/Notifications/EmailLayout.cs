@@ -43,7 +43,7 @@ public static partial class EmailLayout
 
         // Header: the logo on white, with a brand-color rule beneath it.
         html.Append("<tr><td style=\"padding:20px 28px;border-bottom:4px solid ").Append(primary).Append(";\">");
-        if (IsWebAddress(logoUrl))
+        if (IsHttpsAddress(logoUrl))
         {
             html.Append("<img src=\"").Append(Encode(logoUrl!)).Append("\" alt=\"").Append(Encode(branding.LogoAlt)).Append("\" height=\"48\" style=\"display:block;height:48px;width:auto;border:0;\">");
         }
@@ -124,6 +124,10 @@ public static partial class EmailLayout
 
         html.Append(Encode(line[position..]));
     }
+
+    /// <summary>True only for an absolute https address. The logo is loaded by the recipient's mail client, so an http address is never used for it.</summary>
+    public static bool IsHttpsAddress(string? value) =>
+        Uri.TryCreate(value, UriKind.Absolute, out var uri) && uri.Scheme == Uri.UriSchemeHttps;
 
     /// <summary>True only for an absolute http or https address, so a <c>javascript:</c> or <c>data:</c> value is never linked or loaded.</summary>
     public static bool IsWebAddress(string? value) =>

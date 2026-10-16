@@ -96,6 +96,7 @@ AND    EXISTS (SELECT 1 FROM "AspNetUserRoles" ur JOIN "AspNetRoles" r ON r."Id"
 | `Email:Provider` | `Smtp` (default) or `Brevo`. Brevo is Development only: startup fails in any other environment (see "Notifications") |
 | `Brevo:*` | `ApiKey` and `SenderEmail` (user secrets or environment only), `AllowedRecipients` (exact test mailboxes; empty rejects every send), `SenderName`, `RequestTimeout` |
 | `Notifications:PortalUrl` | The sign-in address messages point to (the `portalUrl` placeholder) |
+| `Notifications:ShowLogo` | `true` (default) shows the logo image; `false` shows the portal name as text instead. Set it to `false` when `PortalUrl` is http (Development), because the service refuses to start with an http logo address |
 | `Notifications:LogoUrl` | Absolute https address of the logo at the top of every email (default `{PortalUrl}/images/iit-logo.png`). Mail clients load it from the internet, so it must be publicly reachable |
 | `Notifications:BrandColor`, `PortalName`, `LogoAlt`, `FooterText`, `ButtonLabel` | Email branding (defaults are the IIT values). `BrandColor` is a six-digit hex value such as `#2E3192` with at least 4.5:1 contrast against white; the text values are single lines of at most 300 characters. An invalid value stops the service from starting |
 | `NotificationDispatch:*` | Notification worker: `WorkerEnabled`, `PollInterval` (5 s), `BatchSize` (50), `MaxAttempts` (8), `BaseRetryDelay` (5 s), `MaxRetryDelay` (15 min), `LeaseDuration` (2 min) |
@@ -298,6 +299,10 @@ shared so all messages look alike. The logo address, brand color, portal name, l
 the transactional send endpoint, never Brevo's content-retrieval or tracking features. In any other environment the service refuses to start if
 Brevo is selected or a Brevo key is present. A different provider must be chosen and its content retention and access verified against the
 no-stored-security-content rule before Production.
+
+**Channels.** Notifications are delivered through `IDeliveryChannel` adapters; production has one, email (`EmailDeliveryChannel`, which builds the
+branded HTML and calls the provider). A new channel is a new adapter plus a seeded template: producers never name a channel, so none of them changes.
+`NotificationChannel.Test` exists only for the conformance test in `NotificationChannelIndependenceTests` and is never seeded or registered in production.
 
 ## Entity conventions: who created it and who changed it, and when
 

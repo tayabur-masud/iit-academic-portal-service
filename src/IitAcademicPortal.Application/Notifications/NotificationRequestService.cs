@@ -20,6 +20,12 @@ public sealed class NotificationOptions
     /// </summary>
     public string? LogoUrl { get; set; }
 
+    /// <summary>
+    /// Whether emails show the logo image. When false the portal name is shown as text and no image address is needed, which is the explicit
+    /// way to run in Development, where the portal is http and not reachable from the internet.
+    /// </summary>
+    public bool ShowLogo { get; set; } = true;
+
     public string EffectiveLogoUrl => string.IsNullOrWhiteSpace(LogoUrl) ? $"{PortalUrl.TrimEnd('/')}/images/iit-logo.png" : LogoUrl;
 
     /// <summary>The portal name shown in the email header when there is no logo.</summary>
@@ -37,7 +43,7 @@ public sealed class NotificationOptions
     public string ButtonLabel { get; set; } = EmailBranding.DefaultButtonLabel;
 
     /// <summary>All of the above as the branding every email is rendered with.</summary>
-    public EmailBranding Branding => new(PortalName, EffectiveLogoUrl, LogoAlt, BrandColor, FooterText, ButtonLabel);
+    public EmailBranding Branding => new(PortalName, ShowLogo ? EffectiveLogoUrl : null, LogoAlt, BrandColor, FooterText, ButtonLabel);
 }
 
 /// <summary>Operational counters for notification delivery, scoped to the instance so test hosts do not mix.</summary>
@@ -120,6 +126,7 @@ public interface INotificationRequestService
 public sealed class NotificationRequestService(
     INotificationStore store,
     IRecipientDirectory directory,
+    IEnumerable<IDeliveryChannel> channels,
     NotificationTemplateRenderer renderer,
     IOptions<NotificationOptions> options,
     TimeProvider timeProvider,
@@ -139,8 +146,12 @@ public sealed class NotificationRequestService(
 
         try
         {
-            var template = await store.GetTemplateAsync(request.EventType, cancellationToken)
-                ?? throw new InvalidOperationException("No email template is seeded for the event.");
+            var templates = await store.GetTemplatesAsync(request.EventType, cancellationToken);
+            var active = channels.Select(c => c.Channel).ToHashSet();
+            if (active.Contains(NotificationChannel.Email) && templates.All(t => t.Channel != NotificationChannel.Email))
+            {
+                throw new InvalidOperationException("No email template is seeded for the event.");
+            }
 
             var values = new Dictionary<string, string>(request.Context ?? new Dictionary<string, string>(), StringComparer.Ordinal)
             {
@@ -150,6 +161,9 @@ public sealed class NotificationRequestService(
             var now = timeProvider.GetUtcNow().UtcDateTime;
             var (accepted, duplicates, suppressed, failed) = (0, 0, 0, 0);
 
+            // One notification per recipient for every channel that has a template for the event and an adapter to deliver it. The producer
+            // never names a channel, so adding one later changes nothing it sends.
+            foreach (var template in templates.Where(t => active.Contains(t.Channel)))
             foreach (var recipientId in recipients)
             {
                 var person = people.GetValueOrDefault(recipientId);
@@ -190,7 +204,8 @@ public sealed class NotificationRequestService(
                 }
 
                 var record = NotificationRecord.Create(
-                    request.EventType, request.OccurrenceId, recipientId, destination, template.RevisionId, now, subject, body);
+                    request.EventType, request.OccurrenceId, recipientId, destination, template.RevisionId, now, subject, body,
+                    channel: template.Channel);
                 var state = NotificationDispatchState.Create(record.Id, status, now, failureCode);
                 if (await store.AcceptAsync(record, state, cancellationToken) == AcceptResult.Duplicate)
                 {

@@ -12,10 +12,18 @@ public enum NotificationEventType
     FeedbackClosingReminder,
 }
 
-/// <summary>Delivery channels. Email is the only one supported initially; adding another changes no producer.</summary>
+/// <summary>
+/// Delivery channels. Email is the only channel the portal delivers through: it is the only one with a seeded template and a registered
+/// adapter. <see cref="Test"/> exists solely so a test can prove that a producer's request is unchanged when another channel is added; it
+/// has no template, no production adapter, and is never delivered. Adding a real channel later is a new value, a seeded template, and an
+/// adapter: no producer changes.
+/// </summary>
 public enum NotificationChannel
 {
     Email,
+
+    /// <summary>Reserved for the channel-independence conformance test. Never seeded and never registered outside tests.</summary>
+    Test,
 }
 
 /// <summary>The current state of one notification execution, projected from its dispatch state.</summary>

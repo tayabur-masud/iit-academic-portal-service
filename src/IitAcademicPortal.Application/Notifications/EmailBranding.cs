@@ -46,10 +46,23 @@ public sealed partial class NotificationOptionsValidator : IValidateOptions<Noti
             failures.Add("Notifications:PortalUrl must be an absolute http or https address.");
         }
 
-        if (!string.IsNullOrWhiteSpace(options.LogoUrl)
-            && !(Uri.TryCreate(options.LogoUrl, UriKind.Absolute, out var logo) && logo.Scheme == Uri.UriSchemeHttps))
+        if (options.ShowLogo)
         {
-            failures.Add("Notifications:LogoUrl must be an absolute https address (mail clients load it from the internet).");
+            // The logo is loaded by the recipient's mail client from the internet, so the address that will actually be used must be
+            // absolute https: the explicit LogoUrl, or else the fallback built from PortalUrl. An http fallback is not accepted.
+            if (!string.IsNullOrWhiteSpace(options.LogoUrl))
+            {
+                if (!EmailLayout.IsHttpsAddress(options.LogoUrl))
+                {
+                    failures.Add("Notifications:LogoUrl must be an absolute https address (mail clients load it from the internet).");
+                }
+            }
+            else if (!EmailLayout.IsHttpsAddress(options.EffectiveLogoUrl))
+            {
+                failures.Add(
+                    "Notifications:LogoUrl is required when Notifications:PortalUrl is not https, because the fallback logo address would be http. " +
+                    "Set an explicit, publicly reachable https LogoUrl, or set Notifications:ShowLogo to false to send emails without the logo image.");
+            }
         }
 
         if (!HexColor().IsMatch(options.BrandColor))

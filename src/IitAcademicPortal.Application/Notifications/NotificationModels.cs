@@ -41,6 +41,7 @@ public sealed record NotificationRequestResult(
 public sealed record TemplateSnapshot(
     Guid TemplateId,
     NotificationEventType EventType,
+    NotificationChannel Channel,
     bool Enabled,
     Guid RevisionId,
     int RevisionNumber,
@@ -54,6 +55,7 @@ public sealed record TemplateWithRevision(NotificationTemplate Template, Notific
 public sealed record ClaimedNotification(
     Guid Id,
     NotificationEventType EventType,
+    NotificationChannel Channel,
     string RecipientUserId,
     string? Destination,
     string? Subject,

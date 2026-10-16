@@ -54,7 +54,8 @@ public sealed class NotificationRecord
         string? subject,
         string? body,
         Guid? parentNotificationId = null,
-        string? requestIdempotencyKey = null)
+        string? requestIdempotencyKey = null,
+        NotificationChannel channel = NotificationChannel.Email)
     {
         var withheld = eventType.IsSecurity();
         return new NotificationRecord
@@ -63,7 +64,7 @@ public sealed class NotificationRecord
             OccurrenceId = occurrenceId,
             RecipientUserId = recipientUserId,
             Destination = destination,
-            Channel = NotificationChannel.Email,
+            Channel = channel,
             TemplateRevisionId = templateRevisionId,
             RequestedAtUtc = requestedAtUtc,
             Subject = withheld ? null : subject,

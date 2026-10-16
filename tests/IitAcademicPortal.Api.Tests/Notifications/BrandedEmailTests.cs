@@ -214,6 +214,99 @@ public sealed class BrandedEmailTests : NotificationTestBase
         Assert.Contains(Failures(Valid(o => o.PortalUrl = "not a url")), f => f.Contains("PortalUrl"));
     }
 
+    // --- The logo must be an https address (T042) ---
+
+    [Fact]
+    public void An_http_portal_address_with_no_explicit_logo_is_rejected_because_the_fallback_logo_would_be_http()
+    {
+        var failures = Failures(new NotificationOptions { PortalUrl = "http://localhost:4200" });
+
+        var failure = Assert.Single(failures, f => f.Contains("LogoUrl"));
+        Assert.Contains("PortalUrl is not https", failure);
+        Assert.Contains("ShowLogo", failure);
+        Assert.Equal("http://localhost:4200/images/iit-logo.png", new NotificationOptions { PortalUrl = "http://localhost:4200" }.EffectiveLogoUrl);
+    }
+
+    [Fact]
+    public void An_explicit_https_logo_makes_an_http_portal_address_acceptable()
+    {
+        Assert.Empty(Failures(new NotificationOptions { PortalUrl = "http://localhost:4200", LogoUrl = "https://cdn.example.org/iit-logo.png" }));
+    }
+
+    [Fact]
+    public void An_https_portal_address_needs_no_explicit_logo_and_a_blank_one_uses_the_portals_own()
+    {
+        Assert.Empty(Failures(new NotificationOptions { PortalUrl = "https://portal.example.org" }));
+        Assert.Empty(Failures(new NotificationOptions { PortalUrl = "https://portal.example.org", LogoUrl = " " }));
+        Assert.Equal("https://portal.example.org/images/iit-logo.png",
+            new NotificationOptions { PortalUrl = "https://portal.example.org", LogoUrl = " " }.Branding.LogoUrl);
+    }
+
+    [Fact]
+    public void Turning_the_logo_off_is_the_explicit_way_to_use_an_http_portal_address_and_emails_then_show_the_name_as_text()
+    {
+        var options = new NotificationOptions { PortalUrl = "http://localhost:4200", ShowLogo = false };
+
+        Assert.Empty(Failures(options));
+        Assert.Null(options.Branding.LogoUrl);
+        var html = EmailLayout.Render("Subject", "Body", options.Branding);
+        Assert.DoesNotContain("<img", html);
+        Assert.Contains("IIT Academic Portal</span>", html);
+    }
+
+    [Theory]
+    [InlineData("http://cdn.example.org/logo.png")]
+    [InlineData("//cdn.example.org/logo.png")]
+    [InlineData("ftp://cdn.example.org/logo.png")]
+    public void An_http_or_scheme_less_override_is_still_rejected(string logo)
+    {
+        Assert.Contains(Failures(new NotificationOptions { PortalUrl = "https://portal.example.org", LogoUrl = logo }), f => f.Contains("LogoUrl"));
+    }
+
+    [Theory]
+    [InlineData("http://cdn.example.org/logo.png")]
+    [InlineData("http://localhost:4200/images/iit-logo.png")]
+    public void The_layout_never_emits_an_http_image_even_if_one_reaches_it(string logo)
+    {
+        var html = EmailLayout.Render("Subject", "Body", new EmailBranding(LogoUrl: logo));
+
+        Assert.DoesNotContain("<img", html);
+        Assert.DoesNotContain("src=\"http:", html);
+        Assert.Contains("IIT Academic Portal</span>", html);
+    }
+
+    [Fact]
+    public async Task A_sent_email_from_an_https_portal_has_an_https_image_and_no_http_image()
+    {
+        var student = await Host.CreateRecipientAsync();
+        await Host.RequestAsync(Results("logo-1", student));
+        await Host.FlushNotificationsAsync();
+
+        var html = Assert.Single(Host.Emails.Messages).HtmlBody!;
+
+        Assert.Contains("<img src=\"https://portal.test/images/iit-logo.png\"", html);
+        Assert.DoesNotContain("<img src=\"http:", html);
+    }
+
+    private sealed class HttpPortalHost : NotificationTestHost
+    {
+        protected override void ConfigureWebHost(Microsoft.AspNetCore.Hosting.IWebHostBuilder builder)
+        {
+            base.ConfigureWebHost(builder);
+            builder.UseSetting("Notifications:PortalUrl", "http://localhost:4200");
+        }
+    }
+
+    [Fact]
+    public void A_host_with_an_http_portal_address_and_no_explicit_logo_refuses_to_start()
+    {
+        using var host = new HttpPortalHost();
+
+        var error = Assert.ThrowsAny<Exception>(() => host.CreateClient());
+
+        Assert.Contains("LogoUrl is required", Flatten(error));
+    }
+
     private sealed class CustomBrandHost : NotificationTestHost
     {
         protected override void ConfigureWebHost(Microsoft.AspNetCore.Hosting.IWebHostBuilder builder)

@@ -40,8 +40,8 @@ public sealed class FailableNotificationStore(INotificationStore inner, Notifica
 {
     private bool FailAccept => fault.FailAccept;
 
-    public Task<TemplateSnapshot?> GetTemplateAsync(NotificationEventType eventType, CancellationToken cancellationToken) =>
-        inner.GetTemplateAsync(eventType, cancellationToken);
+    public Task<IReadOnlyList<TemplateSnapshot>> GetTemplatesAsync(NotificationEventType eventType, CancellationToken cancellationToken) =>
+        inner.GetTemplatesAsync(eventType, cancellationToken);
 
     public Task<AcceptResult> AcceptAsync(NotificationRecord record, NotificationDispatchState state, CancellationToken cancellationToken) =>
         FailAccept ? throw new InvalidOperationException("The notification store is unavailable.") : inner.AcceptAsync(record, state, cancellationToken);

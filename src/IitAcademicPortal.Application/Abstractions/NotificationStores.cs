@@ -17,8 +17,8 @@ public enum AcceptResult
 /// </summary>
 public interface INotificationStore
 {
-    /// <summary>The current revision of the event's email template, or null if none is seeded.</summary>
-    Task<TemplateSnapshot?> GetTemplateAsync(NotificationEventType eventType, CancellationToken cancellationToken);
+    /// <summary>The current revision of the event's template on every channel that has one.</summary>
+    Task<IReadOnlyList<TemplateSnapshot>> GetTemplatesAsync(NotificationEventType eventType, CancellationToken cancellationToken);
 
     /// <summary>Stores a record and its dispatch state together. A replay of the same source occurrence is a <see cref="AcceptResult.Duplicate"/>.</summary>
     Task<AcceptResult> AcceptAsync(NotificationRecord record, NotificationDispatchState state, CancellationToken cancellationToken);

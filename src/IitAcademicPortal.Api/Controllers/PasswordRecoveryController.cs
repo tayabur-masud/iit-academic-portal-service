@@ -17,9 +17,9 @@ public sealed class PasswordRecoveryController(PasswordRecoveryService recovery)
     /// <summary>Same response whether or not an eligible account exists.</summary>
     [HttpPost("password-reset-requests")]
     [ProducesResponseType<GenericResetAcceptedResponse>(StatusCodes.Status202Accepted)]
-    public ActionResult<GenericResetAcceptedResponse> RequestReset(PasswordResetRequest request)
+    public async Task<ActionResult<GenericResetAcceptedResponse>> RequestReset(PasswordResetRequest request, CancellationToken cancellationToken)
     {
-        recovery.Request(request.Email);
+        await recovery.RequestAsync(request.Email, cancellationToken);
         return Accepted(new GenericResetAcceptedResponse(PasswordRecoveryService.PublicRequestMessage));
     }
 

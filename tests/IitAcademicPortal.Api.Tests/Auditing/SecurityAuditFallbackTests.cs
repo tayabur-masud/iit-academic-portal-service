@@ -106,6 +106,9 @@ public sealed class SecurityAuditFallbackTests : IDisposable
             builder.UseSetting("ConnectionStrings:Portal", "Host=unused");
             builder.UseSetting("PasswordRecovery:ResetPageUrl", "https://portal.test/reset-password");
             builder.UseSetting("AuditDelivery:WorkerEnabled", "false");
+
+            // A real deployment must give the portal an https address (it is also where the email logo is loaded from).
+            builder.UseSetting("Notifications:PortalUrl", "https://portal.test");
             if (sink is not null)
             {
                 builder.UseSetting("AuditFallback:Sink", sink);

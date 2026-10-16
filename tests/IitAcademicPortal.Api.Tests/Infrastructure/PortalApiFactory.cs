@@ -5,7 +5,9 @@ using IitAcademicPortal.Application.Auditing;
 using IitAcademicPortal.Domain.Auditing;
 using IitAcademicPortal.Domain.Identity;
 using IitAcademicPortal.Infrastructure.Auditing;
+using IitAcademicPortal.Infrastructure.Notifications;
 using IitAcademicPortal.Infrastructure.Persistence;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -36,6 +38,7 @@ public class PortalApiFactory : WebApplicationFactory<Program>
     public PortalApiFactory()
     {
         Metrics = new AuditMetricsListener(auditMetrics);
+        Emails.Pump = FlushNotificationsAsync;
     }
 
     public CapturingEmailSender Emails { get; } = new();
@@ -77,6 +80,12 @@ public class PortalApiFactory : WebApplicationFactory<Program>
         builder.UseSetting("AuditDelivery:BaseRetryDelay", "00:00:01");
         builder.UseSetting("AuditDelivery:MaxRetryDelay", "00:00:10");
         builder.UseSetting("AuditDelivery:LeaseDuration", "00:01:00");
+        // Notification delivery is driven by the tests through FlushNotificationsAsync; the background worker stays off.
+        builder.UseSetting("NotificationDispatch:WorkerEnabled", "false");
+        builder.UseSetting("NotificationDispatch:MaxAttempts", "4");
+        builder.UseSetting("NotificationDispatch:BaseRetryDelay", "00:00:05");
+        builder.UseSetting("NotificationDispatch:MaxRetryDelay", "00:01:00");
+        builder.UseSetting("Notifications:PortalUrl", "https://portal.test");
         builder.UseSetting("AuditFallback:Sink", "File");
         builder.UseSetting("AuditFallback:Directory", fallbackDirectory);
 
@@ -114,6 +123,10 @@ public class PortalApiFactory : WebApplicationFactory<Program>
             services.RemoveAll<IEmailSender>();
             services.AddSingleton<IEmailSender>(Emails);
 
+            // Isolated keys: protected transient work in one test host cannot depend on, or leak into, another.
+            services.RemoveAll<IDataProtectionProvider>();
+            services.AddSingleton<IDataProtectionProvider>(new EphemeralDataProtectionProvider());
+
             // Test-only endpoints that exercise the authorization policies.
             services.AddControllers().AddApplicationPart(typeof(ProbeController).Assembly);
         });
@@ -128,6 +141,15 @@ public class PortalApiFactory : WebApplicationFactory<Program>
     }
 
     /// <summary>A browser-like client: HTTPS (so Secure cookies flow), its own cookie jar, no redirects.</summary>
+    /// <summary>Runs notification passes until nothing more is due: recovery requests, reminders, and deliveries.</summary>
+    public async Task FlushNotificationsAsync()
+    {
+        var processor = Services.GetRequiredService<NotificationDispatchProcessor>();
+        for (var pass = 0; pass < 50 && await processor.ProcessOnceAsync(CancellationToken.None) > 0; pass++)
+        {
+        }
+    }
+
     public PortalClient CreatePortalClient()
     {
         var cookies = new CookieContainerHandler();

@@ -50,6 +50,24 @@ public sealed class SmtpEmailSender(IOptions<SmtpOptions> options) : IEmailSende
         }
 
         using var mail = new MailMessage(settings.FromAddress, message.To, message.Subject, message.Body);
-        await client.SendMailAsync(mail, cancellationToken);
+        if (!string.IsNullOrEmpty(message.HtmlBody))
+        {
+            // The plain text stays as the body; the branded HTML is its alternative.
+            mail.AlternateViews.Add(AlternateView.CreateAlternateViewFromString(message.HtmlBody, null, System.Net.Mime.MediaTypeNames.Text.Html));
+        }
+
+        try
+        {
+            await client.SendMailAsync(mail, cancellationToken);
+        }
+        catch (SmtpFailedRecipientException ex)
+        {
+            // The server refused the recipient; trying again will not change that. The code never carries the address.
+            throw new EmailDeliveryException(EmailFailureKind.Permanent, "RecipientRejected", ex);
+        }
+        catch (SmtpException ex)
+        {
+            throw new EmailDeliveryException(EmailFailureKind.Retryable, "SmtpError", ex);
+        }
     }
 }

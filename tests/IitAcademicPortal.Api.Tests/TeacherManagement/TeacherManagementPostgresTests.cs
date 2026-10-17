@@ -258,7 +258,7 @@ public sealed class TeacherManagementPostgresTests(PostgresDatabaseFixture fixtu
                 .UpdateAsync(teacherId, new TeacherRolesInput([PortalRoles.Teacher], null), CancellationToken.None);
     }
 
-    private sealed class ConcurrentLockGate : IDisposable
+    internal sealed class ConcurrentLockGate : IDisposable
     {
         private readonly Barrier barrier = new(2);
         private int lockCalls;
@@ -280,7 +280,7 @@ public sealed class TeacherManagementPostgresTests(PostgresDatabaseFixture fixtu
     }
 
     /// <summary>Delegates every operation to the production store while coordinating just before its advisory lock.</summary>
-    private sealed class BarrierTeacherStore(ITeacherStore inner, ConcurrentLockGate gate) : ITeacherStore
+    internal sealed class BarrierTeacherStore(ITeacherStore inner, ConcurrentLockGate gate) : ITeacherStore
     {
         public Task<ITeacherTransaction> BeginTransactionAsync(CancellationToken cancellationToken) => inner.BeginTransactionAsync(cancellationToken);
 
@@ -322,14 +322,14 @@ public sealed class TeacherManagementPostgresTests(PostgresDatabaseFixture fixtu
             inner.ListAsync(filter, page, pageSize, cancellationToken);
     }
 
-    private sealed class NoopAuditRecorder : IAuditEventRecorder
+    internal sealed class NoopAuditRecorder : IAuditEventRecorder
     {
         public void Stage(AuditEventRequest request) { }
 
         public Task RecordSecurityAsync(AuditEventRequest request) => Task.CompletedTask;
     }
 
-    private sealed class EmptyAuditActorDirectory : IAuditActorDirectory
+    internal sealed class EmptyAuditActorDirectory : IAuditActorDirectory
     {
         public Task<IReadOnlyDictionary<string, string>> GetEmailsAsync(IReadOnlyCollection<string> userIds, CancellationToken cancellationToken) =>
             Task.FromResult<IReadOnlyDictionary<string, string>>(new Dictionary<string, string>());

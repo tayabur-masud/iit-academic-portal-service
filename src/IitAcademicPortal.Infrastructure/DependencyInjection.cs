@@ -1,6 +1,8 @@
 using IitAcademicPortal.Application.Abstractions;
 using IitAcademicPortal.Application.Notifications;
 using IitAcademicPortal.Application.PasswordRecovery;
+using IitAcademicPortal.Application.UserManagement;
+using IitAcademicPortal.Infrastructure.Identity;
 using IitAcademicPortal.Domain.Identity;
 using IitAcademicPortal.Infrastructure.Auditing;
 using IitAcademicPortal.Infrastructure.Email;
@@ -45,10 +47,15 @@ public static class DependencyInjection
             .AddRoles<IdentityRole>()
             .AddEntityFrameworkStores<PortalDbContext>()
             .AddDefaultTokenProviders()
+            .AddTokenProvider<AccountCredentialSetupTokenProvider>(AccountCredentialSetupService.TokenProvider)
             .AddPasswordValidator<PortalPasswordValidator>();
 
         services.AddOptions<DataProtectionTokenProviderOptions>()
             .Configure<IOptions<PasswordRecoveryOptions>>((tokens, recovery) => tokens.TokenLifespan = recovery.Value.ProofLifespan);
+
+        // Setup proofs have their own provider, protector purpose, and lifespan, so they never interchange with reset proofs.
+        services.AddOptions<AccountCredentialSetupTokenProviderOptions>()
+            .Configure<IOptions<AccountCredentialSetupOptions>>((tokens, setup) => tokens.TokenLifespan = setup.Value.ProofLifespan);
 
         services.AddScoped<IAuthSessionRepository, AuthSessionRepository>();
 
@@ -105,6 +112,7 @@ public static class DependencyInjection
         services.AddScoped<IAuditEventStore, AuditEventStore>();
         services.AddScoped<IConfigurationStore, ConfigurationStore>();
         services.AddScoped<ITeacherStore, TeacherStore>();
+        services.AddScoped<IUserAccountStore, UserAccountStore>();
         services.AddScoped<IAuditActorDirectory, AuditActorDirectory>();
         services.AddSingleton<ISecurityAuditOutboxStore, SecurityAuditOutboxStore>();
 

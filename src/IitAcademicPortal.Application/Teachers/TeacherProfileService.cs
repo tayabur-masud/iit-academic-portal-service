@@ -44,7 +44,7 @@ public sealed class TeacherProfileService(
         var deactivating = input.IsActive == false && profile.IsActive;
         if (input.IsActive == true && !profile.IsActive)
         {
-            errors.Add("isActive", "A deactivated teacher cannot be reactivated yet. Credential setup is not available.");
+            errors.Add("isActive", "A deactivated teacher cannot be reactivated.");
         }
 
         if (errors.Any)

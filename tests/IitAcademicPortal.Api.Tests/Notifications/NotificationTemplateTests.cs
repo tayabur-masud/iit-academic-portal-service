@@ -9,7 +9,7 @@ using Microsoft.EntityFrameworkCore;
 namespace IitAcademicPortal.Api.Tests.Notifications;
 
 /// <summary>
-/// US2: Admins maintain the seven email templates. Each wording change is an immutable revision, validation is strict, security
+/// US2: Admins maintain the eight email templates. Each wording change is an immutable revision, validation is strict, security
 /// templates cannot be disabled, stale edits are refused, and a preview is synthetic, sends nothing, and stores nothing.
 /// </summary>
 public sealed class NotificationTemplateTests : NotificationTestBase
@@ -28,7 +28,7 @@ public sealed class NotificationTemplateTests : NotificationTestBase
     }
 
     [Fact]
-    public async Task The_list_shows_the_seven_email_templates_with_their_revision_state_and_placeholders_and_no_proof_values()
+    public async Task The_list_shows_the_eight_email_templates_with_their_revision_state_and_placeholders_and_no_proof_values()
     {
         using var admin = await AdminAsync();
 
@@ -36,9 +36,9 @@ public sealed class NotificationTemplateTests : NotificationTestBase
 
         Assert.Equal(HttpStatusCode.OK, status);
         var items = body.EnumerateArray().ToList();
-        Assert.Equal(7, items.Count);
+        Assert.Equal(8, items.Count);
         Assert.Equal(
-            ["TeacherInvitation", "StudentInvitation", "EmailConfirmation", "PasswordReset", "ResultsPublished", "FeedbackWindowOpened", "FeedbackClosingReminder"],
+            ["TeacherInvitation", "StudentInvitation", "EmailConfirmation", "PasswordReset", "ResultsPublished", "FeedbackWindowOpened", "FeedbackClosingReminder", "AccountCredentialSetup"],
             items.Select(i => i.GetProperty("eventType").GetString()));
         Assert.All(items, i =>
         {

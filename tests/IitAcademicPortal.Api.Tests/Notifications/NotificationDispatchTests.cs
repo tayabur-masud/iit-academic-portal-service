@@ -318,13 +318,13 @@ public sealed class NotificationDispatchTests : NotificationTestBase
         Assert.Equal(HttpStatusCode.Created, status);
         var userId = body.GetProperty("userId").GetString()!;
         var signal = Assert.Single(Host.Signals.PersistenceFailures);
-        Assert.StartsWith($"TeacherInvitation|{userId}|1|", signal);
+        Assert.StartsWith($"AccountCredentialSetup|{userId}|1|", signal);
         Assert.DoesNotContain(teacherEmail, signal);
         Assert.Empty(await Host.RecordsAsync());
 
         // Reconciliation: the owner replays the same stable occurrence once the store is back.
         Host.Fault.FailAccept = false;
-        var request = new NotificationEventRequest(NotificationEventType.TeacherInvitation, userId, [userId]);
+        var request = new NotificationEventRequest(NotificationEventType.AccountCredentialSetup, userId, [userId]);
         var replay = await Host.RequestAsync(request);
         var again = await Host.RequestAsync(request);
 

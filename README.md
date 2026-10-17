@@ -92,6 +92,8 @@ AND    EXISTS (SELECT 1 FROM "AspNetUserRoles" ur JOIN "AspNetRoles" r ON r."Id"
 | `PasswordRecovery:ResetPageUrl` | Absolute URL of the frontend reset page; required at startup |
 | `PasswordRecovery:ProofLifespan` | How long a recovery proof stays valid (default `01:00:00`) |
 | `PasswordRecovery:RequestLifetime` | How long an accepted recovery request waits to be processed before it is discarded unprocessed (default `01:00:00`) |
+| `AccountCredentialSetup:SetupPageUrl` | Absolute URL of the frontend account-setup page. Empty means `{Notifications:PortalUrl}/account-setup`; Production must use the public https portal address |
+| `AccountCredentialSetup:ProofLifespan` | How long a setup link stays valid after it is generated (default `3.00:00:00`). Links are also single-use and stop working after a reissue or an email change |
 | `Smtp:*` | `Host`, `Port`, `EnableSsl`, `UserName`, `Password`, `FromAddress`; or `PickupDirectory` for a local sink |
 | `Email:Provider` | `Smtp` (default) or `Brevo`. Brevo is Development only: startup fails in any other environment (see "Notifications") |
 | `Brevo:*` | `ApiKey` and `SenderEmail` (user secrets or environment only), `AllowedRecipients` (exact test mailboxes; empty rejects every send), `SenderName`, `RequestTimeout` |
@@ -263,18 +265,19 @@ asks for a **business event** and its recipients; it never names a channel, a pr
   ordinary content, and stores the work durably. The `occurrenceId` must be stable and rebuildable from the owner's own data: replaying the same
   occurrence, recipient, and channel creates nothing new, which is also how an owner reconciles after the operational alarm
   (`INotificationFailureSignal`, a critical log plus the `notifications.persistence_failures` counter) says work was not retained.
-- **Seven events**, each with one email template: teacher invitation, student invitation, email confirmation, password reset (security messages,
-  always enabled) and results published, feedback window opened, feedback closing reminder (ordinary; an Admin may disable them, and a disabled
+- **Eight events**, each with one email template: account setup, teacher invitation, student invitation, email confirmation, password reset
+  (security messages, always enabled) and results published, feedback window opened, feedback closing reminder (ordinary; an Admin may disable them, and a disabled
   event is recorded as Suppressed and never replayed).
 - **Delivery** is a background worker (`NotificationDispatchWorker`) over PostgreSQL: leased claims, at most 8 attempts with a 5-second base delay
   doubling to 15 minutes, then Failed (resendable). A provider outcome that may have been accepted (a timeout, or a worker that died after the call
   started) is **Uncertain**: never retried and never claimed as sent. `Sent` means the provider accepted it, not that it reached an inbox.
 - **Security content is never stored.** For a security event the owning workflow provides an `ISecurityContentProvider` that decides whether the
   message is authorized and produces the link for one delivery attempt, in memory. History keeps only safe facts and `contentWithheld: true`;
-  previews show a fixed, nonfunctional link placeholder. Password reset is wired this way (`PasswordResetContentProvider`). The invitation and
-  email-confirmation providers do not exist yet (no secure setup-link flow), so those notifications **fail visibly** with
-  `SetupLinkProviderMissing` or `ConfirmationProviderMissing` and nothing is sent; replace `UnavailableSecurityContentProvider` when the account
-  owner supplies the contract. Never reuse a password-reset proof for an invitation.
+  previews show a fixed, nonfunctional link placeholder. Two providers are real: password reset (`PasswordResetContentProvider`, which
+  also refuses an account still pending setup) and account setup (`AccountCredentialSetupSecurityContentProvider`, see User Management below),
+  each with its own Identity token provider and purpose. The older per-role invitation events and email confirmation have no producer and no
+  link provider, so a notification for them **fails visibly** (`SetupLinkProviderMissing`, `ConfirmationProviderMissing`) and nothing is sent.
+  Never reuse a password-reset proof for account setup, or the reverse.
 - **Password recovery** keeps its generic public response. An accepted request is retained durably (address protected with Data Protection) until
   the worker resolves the account; an unknown address leaves no permanent record. The old in-memory queue and worker are gone.
 - **Admin API** (`/api/admin/notification-templates`, `/api/admin/notifications`, `/api/admin/notification-settings/feedback-reminder`): edit
@@ -335,11 +338,40 @@ listed, with a reason, as exempt. Today the exempt ones are ASP.NET Core Identit
 
 Admins add, update, find, and deactivate teachers under `/api/admin/teachers` (contract: `specs/004-teacher-management/contracts/`). A teacher is one `PortalUser` plus one `TeacherProfile`; roles stay in Identity.
 
-- Creating a teacher makes a **pending** account with the Teacher role as its default. No password is set and no email is sent; the account cannot sign in. Reactivating a deactivated teacher is not available until credential setup exists.
+- Creating a teacher makes a **pending** account with the Teacher role as its default. No password is set; after the commit the common `AccountCredentialSetup` email is requested (see User Management), and the account cannot sign in until the teacher uses it. Reactivating a deactivated teacher is not offered.
 - Role rules: Teacher stays while the profile is active, Admin may be assigned or removed, Student is refused, Coordinator is not editable here, and the default role must be assigned. The last active Admin can neither lose Admin nor be deactivated (409); the check runs under a PostgreSQL advisory lock inside the change's transaction.
 - Deactivation never deletes anything: it makes the profile inactive, disables the account, and revokes all sessions, in one transaction with its audit event.
 - Every multi-step change runs in one transaction with its staged `teacher.*` audit event (`TeacherAuditEventDefinitions`; email and phone are recorded as "changed" only).
 - **For the future batch-coordinator feature:** call `ITeacherCoordinatorRoleSynchronizer.SynchronizeCoordinatorRoleAsync(teacherUserId, hasActiveCoordinatorAssignments, ct)` in the same unit of work as every assignment create, change, or end, after working out whether any active assignment remains, and save once. It stages the Coordinator role and its audit event without saving. Add your own tests proving each assignment operation calls it; Teacher Management only tests the synchronizer itself.
+
+## User management (Admin) and account setup
+
+Admins manage every portal account under `/api/admin/users` (contract: `specs/006-user-management/contracts/`). There is no new account table:
+accounts are `PortalUser` with Identity roles, `AccountStatus`, and `DefaultRole`.
+
+- **Directory.** Search by registered email (contains, case-insensitive) or exact user ID, filter by role and status, 25 per page by default
+  and 100 at most, ordered by normalized email then user ID. Responses never carry a password, hash, security stamp, proof, or link;
+  `concurrencyStamp` is Identity's optimistic-concurrency value, sent back with an email change.
+- **Provisioning.** `POST /api/admin/users` creates only **Admin** or **Student** accounts: pending, no password, that single role as the
+  default, committed with an `account.created` audit event. Teacher accounts are created by Teacher Management (409 here) and Coordinator
+  comes from batch-coordinator assignments (409 here). A duplicate normalized email is a 409.
+- **Maintenance.** Email changes need `expectedConcurrencyStamp` (stale or duplicate: 409) and rotate the security stamp. Role changes follow the
+  policy: a Student account is Student-only, Coordinator is never accepted, Teacher needs a teacher profile, the default must be assigned.
+  Deactivation keeps the account, roles, and history, revokes every session (`AccountDeactivated`), refuses the caller's own account and the
+  last active Admin. For an account with a teacher profile, email, role, and deactivation requests are delegated to Teacher Management.
+  Everything that can remove an active Admin takes the same PostgreSQL advisory lock as Teacher Management (`ITeacherStore.LockAdminInvariantAsync`).
+- **Account setup (every new account).** Each account owner requests `AccountCredentialSetupService.InitialRequest(userId)` after its own
+  commit: generic provisioning and Teacher Management do; the future batch-coordinator owner must too. The security-content provider re-checks
+  that the account still exists, still has the accepted address, and is still pending, then generates a token from the dedicated
+  `PortalAccountCredentialSetup` provider and purpose (lifespan `AccountCredentialSetup:ProofLifespan`, 3 days by default) and builds
+  `{AccountCredentialSetup:SetupPageUrl}?userId=...&proof=...` (default page: `{Notifications:PortalUrl}/account-setup`). Nothing about the
+  proof is stored or logged.
+- **Completion.** `POST /api/auth/account-credential-setups` (public, anti-forgery, rate-limited) takes `userId`, `proof`, `newPassword`. In one
+  transaction it adds the password, makes the account Active, rotates the security stamp (so the link cannot be replayed), and stages
+  `account.credential-setup.completed`. Every invalid, expired, used, or stale link gets the same generic 400 and an
+  `auth.credential-setup.rejected` security event with no account.
+- **Reissue.** `POST /api/admin/users/{userId}/credential-setup-reissues` works only for a pending account: it rotates the security stamp (old
+  links stop working), audits `account.credential-setup.reissued`, and requests a new occurrence. It is not the generic failed-notification resend.
 
 ## Configuration (Admin reference data)
 

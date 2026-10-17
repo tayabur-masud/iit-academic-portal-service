@@ -10,6 +10,12 @@ public enum NotificationEventType
     ResultsPublished,
     FeedbackWindowOpened,
     FeedbackClosingReminder,
+
+    /// <summary>
+    /// The common first-password setup email for every newly provisioned account (Admin, Student, Teacher, and Coordinator through
+    /// their owners). Appended last so the seeded identifiers of the earlier events never change.
+    /// </summary>
+    AccountCredentialSetup,
 }
 
 /// <summary>
@@ -72,7 +78,8 @@ public static class NotificationEventTypeExtensions
         eventType is NotificationEventType.TeacherInvitation
             or NotificationEventType.StudentInvitation
             or NotificationEventType.EmailConfirmation
-            or NotificationEventType.PasswordReset;
+            or NotificationEventType.PasswordReset
+            or NotificationEventType.AccountCredentialSetup;
 
     /// <summary>The stable kebab-case name used in routes, for example <c>password-reset</c>.</summary>
     public static string ToSlug(this NotificationEventType eventType) =>

@@ -1421,6 +1421,17 @@ namespace IitAcademicPortal.Infrastructure.Persistence.Migrations
                             Enabled = true,
                             EventType = "FeedbackClosingReminder",
                             LastModifiedAtUtc = new DateTime(2026, 10, 16, 0, 0, 0, 0, DateTimeKind.Utc)
+                        },
+                        new
+                        {
+                            Id = new Guid("7a110000-0000-4000-8000-000000000008"),
+                            Channel = "Email",
+                            CreatedAtUtc = new DateTime(2026, 10, 16, 0, 0, 0, 0, DateTimeKind.Utc),
+                            CurrentRevisionId = new Guid("7a120000-0000-4000-8000-000000000008"),
+                            CurrentRevisionNumber = 1,
+                            Enabled = true,
+                            EventType = "AccountCredentialSetup",
+                            LastModifiedAtUtc = new DateTime(2026, 10, 16, 0, 0, 0, 0, DateTimeKind.Utc)
                         });
                 });
 
@@ -1552,6 +1563,17 @@ namespace IitAcademicPortal.Infrastructure.Persistence.Migrations
                             RevisionNumber = 1,
                             Subject = "Feedback for {{courseName}} closes soon",
                             TemplateId = new Guid("7a110000-0000-4000-8000-000000000007")
+                        },
+                        new
+                        {
+                            Id = new Guid("7a120000-0000-4000-8000-000000000008"),
+                            Body = "An account has been created for you on the IIT Academic Portal.\n\nUse this link to choose your password and activate the account. It works once and expires in {{expiresIn}}:\n\n{{actionLink}}\n\nIf you were not expecting this, you can ignore this email. The account stays inactive until a password is set.",
+                            CreatedAtUtc = new DateTime(2026, 10, 16, 0, 0, 0, 0, DateTimeKind.Utc),
+                            LastModifiedAtUtc = new DateTime(2026, 10, 16, 0, 0, 0, 0, DateTimeKind.Utc),
+                            Placeholders = "actionLink,expiresIn",
+                            RevisionNumber = 1,
+                            Subject = "Set up your IIT Academic Portal account",
+                            TemplateId = new Guid("7a110000-0000-4000-8000-000000000008")
                         });
                 });
 

@@ -189,7 +189,7 @@ public class PortalApiFactory : WebApplicationFactory<Program>
         Assert.True((await users.UpdateAsync(user)).Succeeded);
     }
 
-    /// <summary>Stands in for the later credential-setup flow: gives a pending account the standard test password and makes it Active.</summary>
+    /// <summary>A shortcut around the emailed credential-setup flow (covered by the User Management tests): gives a pending account the standard test password and makes it Active.</summary>
     public async Task ActivateWithPasswordAsync(string email)
     {
         await using var scope = Services.CreateAsyncScope();

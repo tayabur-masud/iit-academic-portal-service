@@ -5,6 +5,7 @@ using IitAcademicPortal.Application.Configuration;
 using IitAcademicPortal.Application.Notifications;
 using IitAcademicPortal.Application.PasswordRecovery;
 using IitAcademicPortal.Application.Teachers;
+using IitAcademicPortal.Application.UserManagement;
 using IitAcademicPortal.Domain.Notifications;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -22,6 +23,7 @@ public static class DependencyInjection
             .ValidateDataAnnotations()
             .ValidateOnStart();
 
+        services.AddOptions<AccountCredentialSetupOptions>().Bind(configuration.GetSection(AccountCredentialSetupOptions.SectionName));
         services.AddOptions<NotificationOptions>().Bind(configuration.GetSection(NotificationOptions.SectionName)).ValidateOnStart();
         services.AddSingleton<IValidateOptions<NotificationOptions>, NotificationOptionsValidator>();
         services.AddSingleton(TimeProvider.System);
@@ -37,6 +39,10 @@ public static class DependencyInjection
         services.AddScoped<TeacherDirectoryService>();
         services.AddScoped<TeacherLifecycleService>();
         services.AddScoped<ITeacherCoordinatorRoleSynchronizer, TeacherCoordinatorRoleSynchronizer>();
+        services.AddScoped<UserDirectoryService>();
+        services.AddScoped<UserProvisioningService>();
+        services.AddScoped<UserAccessService>();
+        services.AddScoped<AccountCredentialSetupService>();
         services.AddSingleton<NotificationTemplateRenderer>();
         services.AddSingleton<NotificationMetrics>();
         services.AddSingleton<INotificationFailureSignal, LoggingNotificationFailureSignal>();
@@ -48,9 +54,11 @@ public static class DependencyInjection
         services.AddScoped<FeedbackReminderScheduler>();
         services.AddScoped<IAcademicNotificationProducers, AcademicNotificationProducers>();
 
-        // The owning workflow's contract per security event. Password reset is real; the others have no secure-link owner yet, so
-        // their notifications fail visibly (and can be resent later) rather than invent a proof flow.
+        // The owning workflow's contract per security event. Password reset and the common account setup (every new account, whatever
+        // its owner) are real, each with its own token purpose. The older per-role invitation events and email confirmation have no
+        // producer and no secure-link owner, so a notification for them fails visibly rather than invent a proof flow.
         services.AddScoped<ISecurityContentProvider, PasswordResetContentProvider>();
+        services.AddScoped<ISecurityContentProvider, AccountCredentialSetupSecurityContentProvider>();
         services.AddScoped<ISecurityContentProvider>(_ => new UnavailableSecurityContentProvider(NotificationEventType.TeacherInvitation, "SetupLinkProviderMissing"));
         services.AddScoped<ISecurityContentProvider>(_ => new UnavailableSecurityContentProvider(NotificationEventType.StudentInvitation, "SetupLinkProviderMissing"));
         services.AddScoped<ISecurityContentProvider>(_ => new UnavailableSecurityContentProvider(NotificationEventType.EmailConfirmation, "ConfirmationProviderMissing"));

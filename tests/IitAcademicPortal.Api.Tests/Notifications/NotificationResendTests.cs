@@ -2,6 +2,7 @@ using System.Net;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using IitAcademicPortal.Api.Tests.Infrastructure;
+using IitAcademicPortal.Application.Notifications;
 using IitAcademicPortal.Domain.Identity;
 using IitAcademicPortal.Domain.Notifications;
 using Microsoft.EntityFrameworkCore;
@@ -300,20 +301,42 @@ public sealed partial class NotificationResendTests : NotificationTestBase
     public async Task A_security_resend_is_refused_when_the_owning_workflow_cannot_authorize_it()
     {
         using var admin = await AdminAsync();
-        var teacherEmail = PortalApiFactory.UniqueEmail("teacher");
-        var (created, createdBody) = await SendAsync(admin, HttpMethod.Post, "/api/admin/teachers", new { displayName = "Awaiting Link", email = teacherEmail });
-        Assert.Equal(HttpStatusCode.Created, created);
-        await Host.FlushNotificationsAsync();
-        var invitation = (await Host.RecordsAsync()).Single();
-        Assert.Equal(NotificationStatus.Failed, (await Host.StateAsync(invitation.Id)).Status);
 
-        var (status, problem) = await Resend(admin, invitation.Id);
+        // Student invitation has no producer and no secure-link owner (account setup uses the common AccountCredentialSetup event), so
+        // its provider is the unavailable stand-in.
+        var studentId = await Host.CreateRecipientAsync();
+        var invitationId = await AcceptOneAsync(new NotificationEventRequest(NotificationEventType.StudentInvitation, $"invite-{studentId}", [studentId]));
+        await Host.FlushNotificationsAsync();
+        Assert.Equal(NotificationStatus.Failed, (await Host.StateAsync(invitationId)).Status);
+
+        var (status, problem) = await Resend(admin, invitationId);
 
         Assert.Equal(HttpStatusCode.Conflict, status);
         Assert.Equal("OwnerWorkflowUnavailable", problem.GetProperty("code").GetString());
         Assert.Contains("owning", problem.GetProperty("detail").GetString());
         Assert.Single(await Host.RecordsAsync());
-        _ = createdBody;
+    }
+
+    [Fact]
+    public async Task A_setup_email_resend_is_refused_once_the_account_is_no_longer_pending()
+    {
+        using var admin = await AdminAsync();
+        var teacherEmail = PortalApiFactory.UniqueEmail("teacher");
+        Host.Emails.Behavior = _ => NotificationTestHost.Permanent("Http400");
+        var (created, _) = await SendAsync(admin, HttpMethod.Post, "/api/admin/teachers", new { displayName = "Awaiting Link", email = teacherEmail });
+        Assert.Equal(HttpStatusCode.Created, created);
+        await Host.FlushNotificationsAsync();
+        Host.Recover();
+        var setup = (await Host.RecordsAsync()).Single();
+        Assert.Equal(NotificationStatus.Failed, (await Host.StateAsync(setup.Id)).Status);
+        await Host.SetAccountStatusAsync(teacherEmail, TeacherAccountStatus.Active);
+
+        var (status, problem) = await Resend(admin, setup.Id);
+
+        Assert.Equal(HttpStatusCode.Conflict, status);
+        Assert.Equal("AccountNotPending", problem.GetProperty("code").GetString());
+        Assert.Single(await Host.RecordsAsync());
+        Assert.Empty(Host.Emails.Messages);
     }
 
     [Fact]

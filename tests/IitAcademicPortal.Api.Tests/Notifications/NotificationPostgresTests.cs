@@ -55,14 +55,14 @@ public sealed class NotificationPostgresTests(PostgresDatabaseFixture fixture) :
     }
 
     [PostgresFact]
-    public async Task The_migration_seeds_the_seven_templates_with_fixed_identifiers_and_a_first_revision_each()
+    public async Task The_migration_seeds_the_eight_templates_with_fixed_identifiers_and_a_first_revision_each()
     {
         await using var db = Db.CreateRuntimeContext();
 
         var templates = await db.NotificationTemplates.AsNoTracking().OrderBy(t => t.EventType).ToListAsync();
         var revisions = await db.NotificationTemplateRevisions.AsNoTracking().ToListAsync();
 
-        Assert.Equal(7, templates.Count);
+        Assert.Equal(8, templates.Count);
         Assert.All(templates, t =>
         {
             Assert.Equal(NotificationTemplateCatalog.TemplateId(t.EventType), t.Id);
@@ -71,7 +71,7 @@ public sealed class NotificationPostgresTests(PostgresDatabaseFixture fixture) :
             Assert.Equal(1, t.CurrentRevisionNumber);
             Assert.Equal(NotificationTemplateCatalog.InitialRevisionId(t.EventType), t.CurrentRevisionId);
         });
-        Assert.Equal(7, revisions.Count);
+        Assert.Equal(8, revisions.Count);
         Assert.All(revisions, r => Assert.Contains("{{", r.Body));
         Assert.All(revisions.Where(r => templates.Single(t => t.Id == r.TemplateId).EventType.IsSecurity()), r => Assert.Contains("{{actionLink}}", r.Body));
     }

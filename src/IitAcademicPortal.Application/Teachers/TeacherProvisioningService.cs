@@ -1,6 +1,7 @@
 using IitAcademicPortal.Application.Abstractions;
 using IitAcademicPortal.Application.Auditing;
 using IitAcademicPortal.Application.Notifications;
+using IitAcademicPortal.Application.UserManagement;
 using IitAcademicPortal.Domain.Configuration;
 using IitAcademicPortal.Domain.Identity;
 using IitAcademicPortal.Domain.Notifications;
@@ -11,10 +12,10 @@ namespace IitAcademicPortal.Application.Teachers;
 
 /// <summary>
 /// Adds a teacher: one portal account (pending, with the Teacher role as its default) and one linked profile, in a single
-/// transaction with the audit event. No password is set; the account cannot sign in until credential setup (a later feature)
-/// activates it. After the commit an invitation is requested through the notification capability; that request cannot fail the
-/// action, and delivery needs the account owner's secure setup-link contract, which does not exist yet (see
-/// <see cref="UnavailableSecurityContentProvider"/>), so no invitation can be delivered until it does. Authorization is the caller's job.
+/// transaction with the audit event. No password is set; the account cannot sign in until its holder completes credential setup.
+/// After the commit the common <see cref="NotificationEventType.AccountCredentialSetup"/> email is requested, the same one every
+/// account owner uses (see <see cref="AccountCredentialSetupService"/>); that request cannot fail the action, and a failed delivery
+/// leaves the account pending for an Admin reissue. Authorization is the caller's job.
 /// </summary>
 public sealed class TeacherProvisioningService(
     UserManager<PortalUser> userManager,
@@ -78,10 +79,9 @@ public sealed class TeacherProvisioningService(
 
         await transaction.CommitAsync(cancellationToken);
 
-        // Only a committed account asks for an invitation. The request is durable and independent of delivery: it never throws, and a
+        // Only a committed account asks for its setup email. The request is durable and independent of delivery: it never throws, and a
         // rolled-back creation (above) returns before this point, so it requests nothing.
-        await notifications.RequestAsync(
-            new NotificationEventRequest(NotificationEventType.TeacherInvitation, user.Id, [user.Id]), cancellationToken);
+        await notifications.RequestAsync(AccountCredentialSetupService.InitialRequest(user.Id), cancellationToken);
 
         var detail = await store.GetDetailAsync(profile.Id, cancellationToken);
         return new TeacherResult<TeacherDetail>(TeacherOutcome.Created, await TeacherSupport.WithActorsAsync(detail!, actors, cancellationToken));

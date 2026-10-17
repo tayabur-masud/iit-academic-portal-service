@@ -20,7 +20,7 @@ public sealed record NotificationEventDefinition(
     public bool IsSecurity => EventType.IsSecurity();
 }
 
-/// <summary>The seven supported events, their initial wording, and the placeholder rules.</summary>
+/// <summary>The eight supported events, their initial wording, and the placeholder rules.</summary>
 public static class NotificationTemplateCatalog
 {
     public const string ActionLink = "actionLink";
@@ -95,6 +95,13 @@ public static class NotificationTemplateCatalog
             {
                 ["courseName"] = "Sample Course", ["windowName"] = "Sample Window", ["closesAtUtc"] = "2030-01-01 12:00 UTC", [PortalUrl] = "https://portal.example.invalid",
             }),
+        Security(
+            NotificationEventType.AccountCredentialSetup,
+            "Account setup",
+            "Set up your IIT Academic Portal account",
+            "An account has been created for you on the IIT Academic Portal.\n\n" +
+            "Use this link to choose your password and activate the account. It works once and expires in {{expiresIn}}:\n\n{{actionLink}}\n\n" +
+            "If you were not expecting this, you can ignore this email. The account stays inactive until a password is set."),
     ];
 
     public static NotificationEventDefinition For(NotificationEventType eventType) => All.Single(d => d.EventType == eventType);

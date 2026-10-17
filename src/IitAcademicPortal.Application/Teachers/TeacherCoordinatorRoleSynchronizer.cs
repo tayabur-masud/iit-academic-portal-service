@@ -19,7 +19,10 @@ public sealed class CoordinatorSyncException(string message) : InvalidOperationE
 /// <summary>
 /// Keeps the Coordinator role in step with a teacher's batch-coordinator assignments. This is an internal contract, not an
 /// endpoint: the workflow that creates, changes, or ends an assignment calls it in the same unit of work, after working out whether
-/// any active assignment remains, and must not commit the assignment if this fails.
+/// any active assignment remains, and must not commit the assignment if this fails. When that workflow also provisions a new account,
+/// it must request <see cref="UserManagement.AccountCredentialSetupService.InitialRequest"/> only after its transaction commits, so the
+/// new Coordinator gets the same setup email as every other account and stays pending until it sets a password. No such workflow
+/// exists yet; that producer integration is a release gate.
 /// </summary>
 public interface ITeacherCoordinatorRoleSynchronizer
 {

@@ -11,6 +11,12 @@ public static class AuditEventDefinitions
 
     public static AuditEventDefinition PasswordResetCompleted { get; } = AuditEventDefinition.Security("auth.password-reset.completed");
 
+    /// <summary>
+    /// A first-password setup attempt that was refused (invalid, expired, replayed, or stale link, or a rejected password). Like a
+    /// failed reset it records no account, so the trail reveals nothing the public response does not. Success is a business event.
+    /// </summary>
+    public static AuditEventDefinition CredentialSetupRejected { get; } = AuditEventDefinition.Security("auth.credential-setup.rejected");
+
     /// <summary>Metadata carries the reason: Logout, PasswordReset, or IdleTimeout.</summary>
     public static AuditEventDefinition SessionRevoked { get; } = AuditEventDefinition.Security("auth.session.revoked");
 
@@ -27,6 +33,7 @@ public static class AuditEventDefinitions
     [
         SignIn,
         PasswordResetCompleted,
+        CredentialSetupRejected,
         SessionRevoked,
         RoleSwitched,
         AccessDenied,

@@ -8,8 +8,8 @@ using Microsoft.Extensions.Options;
 namespace IitAcademicPortal.Application.Notifications;
 
 /// <summary>
-/// The password-recovery workflow's contract: a message is authorized only while the account still exists and still has the
-/// address the request was accepted for, and each delivery attempt gets a fresh Identity reset proof generated in memory. The proof
+/// The password-recovery workflow's contract: a message is authorized only while the account still exists, still has the address
+/// the request was accepted for, and is not still waiting for its first-password setup; each delivery attempt gets a fresh Identity reset proof generated in memory. The proof
 /// and the link are never stored or logged.
 /// </summary>
 public sealed class PasswordResetContentProvider(UserManager<PortalUser> userManager, IOptions<PasswordRecoveryOptions> options)
@@ -47,9 +47,15 @@ public sealed class PasswordResetContentProvider(UserManager<PortalUser> userMan
             return (null, SecurityContentResult.Refused("RecipientRemoved"));
         }
 
-        return string.Equals(user.Email, destination, StringComparison.OrdinalIgnoreCase)
-            ? (user, null)
-            : (null, SecurityContentResult.Refused("DestinationChanged"));
+        if (!string.Equals(user.Email, destination, StringComparison.OrdinalIgnoreCase))
+        {
+            return (null, SecurityContentResult.Refused("DestinationChanged"));
+        }
+
+        // A pending account has never set a password: a reset could not let it sign in, and its holder needs the setup email instead.
+        return user.AccountStatus == TeacherAccountStatus.PendingCredentialSetup
+            ? (null, SecurityContentResult.Refused("AccountPendingSetup"))
+            : (user, null);
     }
 
     private static string FormatLifespan(TimeSpan lifespan) =>

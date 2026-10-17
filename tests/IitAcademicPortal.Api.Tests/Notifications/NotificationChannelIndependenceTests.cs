@@ -16,7 +16,7 @@ namespace IitAcademicPortal.Api.Tests.Notifications;
 /// <summary>
 /// SC-009: an existing producer triggers its unchanged event and a second, non-email channel delivers it too, with no change to what the
 /// producer sends. The extra channel exists only in these tests: it is a fake adapter plus a template row inserted here. Production has one
-/// channel (email), one adapter, and seven email templates, which the last tests pin.
+/// channel (email), one adapter, and eight email templates, which the last tests pin.
 /// </summary>
 public sealed class NotificationChannelIndependenceTests
 {
@@ -297,7 +297,7 @@ public sealed class NotificationChannelIndependenceTests
         var channels = scope.ServiceProvider.GetServices<IDeliveryChannel>().ToList();
         await host.WithDbAsync(async db =>
         {
-            Assert.Equal(7, await db.NotificationTemplates.CountAsync());
+            Assert.Equal(8, await db.NotificationTemplates.CountAsync());
             Assert.All(await db.NotificationTemplates.AsNoTracking().ToListAsync(), t => Assert.Equal(NotificationChannel.Email, t.Channel));
         });
 
@@ -305,7 +305,7 @@ public sealed class NotificationChannelIndependenceTests
         Assert.DoesNotContain(NotificationTemplateCatalog.All, d => d.GetType().GetProperties().Any(p => p.PropertyType == typeof(NotificationChannel)));
         using var listed = await admin.GetAsync("/api/admin/notification-templates");
         var templates = System.Text.Json.JsonDocument.Parse(await listed.Content.ReadAsStringAsync()).RootElement;
-        Assert.Equal(7, templates.GetArrayLength());
+        Assert.Equal(8, templates.GetArrayLength());
         Assert.All(templates.EnumerateArray(), t => Assert.Equal("Email", t.GetProperty("channel").GetString()));
     }
 
@@ -323,7 +323,7 @@ public sealed class NotificationChannelIndependenceTests
         using var one = await admin.GetAsync("/api/admin/notification-templates/results-published/email");
 
         var templates = System.Text.Json.JsonDocument.Parse(await listed.Content.ReadAsStringAsync()).RootElement;
-        Assert.Equal(7, templates.GetArrayLength());
+        Assert.Equal(8, templates.GetArrayLength());
         Assert.Equal("Email", System.Text.Json.JsonDocument.Parse(await one.Content.ReadAsStringAsync()).RootElement.GetProperty("channel").GetString());
     }
 }

@@ -6,7 +6,7 @@ using Microsoft.AspNetCore.Mvc;
 namespace IitAcademicPortal.Api.Controllers;
 
 /// <summary>
-/// The seven email templates: list, view, edit (each wording change creates an immutable revision), and a synthetic-only preview.
+/// The eight email templates: list, view, edit (each wording change creates an immutable revision), and a synthetic-only preview.
 /// A security template cannot be disabled, and a preview never shows a live link or proof.
 /// </summary>
 [Route("api/admin/notification-templates")]

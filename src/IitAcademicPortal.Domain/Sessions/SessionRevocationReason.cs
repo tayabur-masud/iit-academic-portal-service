@@ -7,4 +7,7 @@ public enum SessionRevocationReason
     SecurityAction,
     IdleTimeout,
     TeacherDeactivated,
+
+    /// <summary>An Admin deactivated a generic (Admin or Student) account through User Management.</summary>
+    AccountDeactivated,
 }

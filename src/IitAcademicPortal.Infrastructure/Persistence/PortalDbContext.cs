@@ -185,7 +185,11 @@ public class PortalDbContext(DbContextOptions<PortalDbContext> options) : Identi
         MapCode<EducationBoard>(builder);
         MapRecord<EducationGroup>(builder, "EducationGroups", unique: true);
         MapRecord<ExaminationType>(builder, "ExaminationTypes", unique: true);
-        MapRecord<Degree>(builder, "Degrees", unique: true);
+        MapRecord<Degree>(builder, "Degrees", unique: true).Entity<Degree>(e =>
+        {
+            e.Property(x => x.CreditsToBeCompleted).HasPrecision(8, 2).IsRequired();
+            e.ToTable(t => t.HasCheckConstraint("CK_Degrees_CreditsToBeCompleted_Positive", "\"CreditsToBeCompleted\" > 0"));
+        });
         MapCode<Degree>(builder);
         MapRecord<Semester>(builder, "Semesters", unique: true);
         MapRecord<AcademicSession>(builder, "AcademicSessions", unique: true);

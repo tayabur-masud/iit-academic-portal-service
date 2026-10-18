@@ -22,6 +22,10 @@ public sealed class ConfigurationDeleteIntegrityTests(PostgresDatabaseFixture fi
     private static T Named<T>(string name, T record) where T : ConfigurationRecord
     {
         record.Rename(name);
+        if (record is Degree degree)
+        {
+            degree.SetCreditsToBeCompleted(120m);
+        }
         return record;
     }
 

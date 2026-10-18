@@ -23,6 +23,7 @@ public enum ConfigurationFields
     Session = 32,
     Division = 64,
     District = 128,
+    Credits = 256,
 }
 
 public interface IConfigurationResource
@@ -315,6 +316,7 @@ public abstract class ConfigurationResource<T>(string route, string displayName,
         Reject(!string.IsNullOrWhiteSpace(input.Code), ConfigurationFields.Code, "code");
         Reject(!string.IsNullOrWhiteSpace(input.Type), ConfigurationFields.Type, "type");
         Reject(!string.IsNullOrWhiteSpace(input.Address), ConfigurationFields.Address, "address");
+        Reject(input.CreditsToBeCompleted.HasValue, ConfigurationFields.Credits, "creditsToBeCompleted");
         Reject(input.DegreeId.HasValue, ConfigurationFields.Degree, "degreeId");
         Reject(input.StartingSemesterId.HasValue, ConfigurationFields.Semester, "startingSemesterId");
         Reject(input.AcademicSessionId.HasValue, ConfigurationFields.Session, "academicSessionId");
@@ -395,6 +397,7 @@ public abstract class ConfigurationResource<T>(string route, string displayName,
             Name = entity.Name,
             IsActive = entity.IsActive,
             Code = (entity as ICodedRecord)?.Code,
+            CreditsToBeCompleted = (entity as Degree)?.CreditsToBeCompleted,
             CreatedAtUtc = entity.CreatedAtUtc,
             CreatedByUserId = entity.CreatedByUserId,
             LastModifiedAtUtc = entity.LastModifiedAtUtc,

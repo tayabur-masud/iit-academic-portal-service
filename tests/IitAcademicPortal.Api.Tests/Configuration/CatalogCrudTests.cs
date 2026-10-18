@@ -34,6 +34,10 @@ public sealed class CatalogCrudTests : ConfigurationTestBase
         {
             body["type"] = "College";
         }
+        else if (route == "degrees")
+        {
+            body["creditsToBeCompleted"] = 120m;
+        }
 
         return body;
     }
@@ -584,5 +588,56 @@ public sealed class CatalogCrudTests : ConfigurationTestBase
         var (_, page) = await Get(admin, "semesters", "?page=1");
         Assert.Equal(["a", "c", "d"], Names(page));
         Assert.Equal(3, page.GetProperty("totalCount").GetInt64());
+    }
+
+    [Fact]
+    public async Task A_degree_requires_positive_credits_to_be_completed_and_round_trips_the_value()
+    {
+        using var admin = await AdminAsync();
+
+        var (missing, missingProblem) = await Post(admin, "degrees", new { name = "Missing Credits" });
+        Assert.Equal(HttpStatusCode.BadRequest, missing);
+        Assert.True(HasError(missingProblem, "creditsToBeCompleted"));
+
+        var (created, item) = await Post(admin, "degrees", new { name = "Bachelor of IT", creditsToBeCompleted = 120.50m });
+        Assert.Equal(HttpStatusCode.Created, created);
+        Assert.Equal(120.50m, item.GetProperty("creditsToBeCompleted").GetDecimal());
+        var id = item.GetProperty("id").GetGuid();
+
+        var (read, loaded) = await Get(admin, $"degrees/{id}");
+        Assert.Equal(HttpStatusCode.OK, read);
+        Assert.Equal(120.50m, loaded.GetProperty("creditsToBeCompleted").GetDecimal());
+
+        var (updated, changed) = await Put(admin, "degrees", id, new { name = "Bachelor of IT", creditsToBeCompleted = 40.25m });
+        Assert.Equal(HttpStatusCode.OK, updated);
+        Assert.Equal(40.25m, changed.GetProperty("creditsToBeCompleted").GetDecimal());
+    }
+
+    [Theory]
+    [InlineData(0d)]
+    [InlineData(-1d)]
+    [InlineData(1.234d)]
+    public async Task A_degree_rejects_non_positive_or_over_precision_credit_totals_without_writes(double credits)
+    {
+        using var admin = await AdminAsync();
+        await CreateAsync(admin, "degrees", new { name = "Existing Degree", creditsToBeCompleted = 120m });
+
+        var (status, problem) = await Post(admin, "degrees", new { name = $"Invalid Degree {credits}", creditsToBeCompleted = credits });
+
+        Assert.Equal(HttpStatusCode.BadRequest, status);
+        Assert.True(HasError(problem, "creditsToBeCompleted"));
+        Assert.Single((await Get(admin, "degrees", "?status=all")).Body.GetProperty("items").EnumerateArray());
+    }
+
+    [Fact]
+    public async Task A_non_degree_catalog_rejects_credits_to_be_completed()
+    {
+        using var admin = await AdminAsync();
+
+        var (status, problem) = await Post(admin, "semesters", new { name = "Spring", creditsToBeCompleted = 30 });
+
+        Assert.Equal(HttpStatusCode.BadRequest, status);
+        Assert.True(HasError(problem, "creditsToBeCompleted"));
+        Assert.Empty((await Get(admin, "semesters", "?status=all")).Body.GetProperty("items").EnumerateArray());
     }
 }

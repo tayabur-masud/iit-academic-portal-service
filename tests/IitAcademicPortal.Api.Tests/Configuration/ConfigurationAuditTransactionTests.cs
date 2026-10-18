@@ -25,8 +25,12 @@ public sealed class ConfigurationAuditTransactionTests : ConfigurationTestBase
         { "halls", "hall", "Hall" },
     };
 
-    private static object Body(string route, string name, bool? active = null) =>
-        route == "institutions" ? new { name, type = "College", isActive = active } : new { name, isActive = active };
+    private static object Body(string route, string name, bool? active = null) => route switch
+    {
+        "institutions" => new { name, type = "College", isActive = active },
+        "degrees" => new { name, isActive = active, creditsToBeCompleted = 120m },
+        _ => new { name, isActive = active },
+    };
 
     private async Task<List<AuditEvent>> EventsAsync(string prefix) =>
         (await Factory.AuditEventsAsync()).Where(e => e.EventType.StartsWith(prefix, StringComparison.Ordinal)).ToList();
@@ -140,7 +144,7 @@ public sealed class ConfigurationAuditTransactionTests : ConfigurationTestBase
         using var admin = await AdminAsync();
         var id = await CreateAsync(admin, "degrees", new { name = "Same" });
 
-        Assert.Equal(HttpStatusCode.OK, (await Put(admin, "degrees", id, new { name = "Same" })).Status);
+        Assert.Equal(HttpStatusCode.OK, (await Put(admin, "degrees", id, new { name = "Same", creditsToBeCompleted = 120m })).Status);
 
         Assert.Empty(await EventsAsync("configuration.degree.updated"));
     }
@@ -169,8 +173,8 @@ public sealed class ConfigurationAuditTransactionTests : ConfigurationTestBase
         await Factory.WithDbAsync(db => db.Database.ExecuteSqlRawAsync(
             "CREATE TRIGGER fail_audit BEFORE INSERT ON \"AuditEvents\" WHEN NEW.\"EventType\" LIKE 'configuration.%' BEGIN SELECT RAISE(ABORT, 'forced audit failure'); END;"));
 
-        var created = await Post(admin, "degrees", new { name = "Must not persist" });
-        var updated = await Put(admin, "degrees", keep, new { name = "Renamed" });
+        var created = await Post(admin, "degrees", new { name = "Must not persist", creditsToBeCompleted = 120m });
+        var updated = await Put(admin, "degrees", keep, new { name = "Renamed", creditsToBeCompleted = 120m });
         var deleted = await Delete(admin, "semesters", victim);
 
         Assert.Equal(HttpStatusCode.InternalServerError, created.Status);

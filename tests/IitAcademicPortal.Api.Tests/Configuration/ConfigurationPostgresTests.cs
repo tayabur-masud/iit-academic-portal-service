@@ -21,6 +21,10 @@ public sealed class ConfigurationPostgresTests(PostgresDatabaseFixture fixture) 
     private static T Named<T>(string name, T record) where T : ConfigurationRecord
     {
         record.Rename(name);
+        if (record is Degree degree)
+        {
+            degree.SetCreditsToBeCompleted(120m);
+        }
         return record;
     }
 
@@ -210,5 +214,38 @@ public sealed class ConfigurationPostgresTests(PostgresDatabaseFixture fixture) 
         await using var db = Db.CreateRuntimeContext();
         db.Add(Named(new string('y', NameNormalizer.MaxNameLength + 1), new Degree()));
         await Assert.ThrowsAnyAsync<Exception>(() => db.SaveChangesAsync());
+    }
+
+    [PostgresFact]
+    public async Task Degree_credit_total_is_stored_as_required_positive_numeric_with_two_decimal_places()
+    {
+        var degree = Named(Unique("Credit total"), new Degree());
+        degree.SetCreditsToBeCompleted(120.50m);
+        await SaveAsync(degree);
+
+        await using var connection = await Db.OpenAsync(Db.DdlConnectionString);
+        await using (var metadata = new NpgsqlCommand(
+            "SELECT data_type, numeric_precision, numeric_scale, is_nullable FROM information_schema.columns " +
+            "WHERE table_schema = 'public' AND table_name = 'Degrees' AND column_name = 'CreditsToBeCompleted'",
+            connection))
+        await using (var reader = await metadata.ExecuteReaderAsync())
+        {
+            Assert.True(await reader.ReadAsync());
+            Assert.Equal("numeric", reader.GetString(0));
+            Assert.Equal(8, reader.GetInt32(1));
+            Assert.Equal(2, reader.GetInt32(2));
+            Assert.Equal("NO", reader.GetString(3));
+        }
+
+        await using (var persisted = new NpgsqlCommand("SELECT \"CreditsToBeCompleted\" FROM \"Degrees\" WHERE \"Id\" = @id", connection))
+        {
+            persisted.Parameters.AddWithValue("id", degree.Id);
+            Assert.Equal(120.50m, (decimal)(await persisted.ExecuteScalarAsync())!);
+        }
+
+        await using var invalid = new NpgsqlCommand("UPDATE \"Degrees\" SET \"CreditsToBeCompleted\" = 0 WHERE \"Id\" = @id", connection);
+        invalid.Parameters.AddWithValue("id", degree.Id);
+        var error = await Assert.ThrowsAsync<PostgresException>(() => invalid.ExecuteNonQueryAsync());
+        Assert.Equal(PostgresErrorCodes.CheckViolation, error.SqlState);
     }
 }

@@ -94,7 +94,7 @@ public sealed class ConfigurationAuthorizationTests : ConfigurationTestBase
         using var client = Factory.CreatePortalClient();
         await client.SignInSuccessfullyAsync(email);
 
-        Assert.Equal(HttpStatusCode.Created, (await Post(client, "degrees", new { name = "As admin" })).Status);
+        Assert.Equal(HttpStatusCode.Created, (await Post(client, "degrees", new { name = "As admin", creditsToBeCompleted = 120m })).Status);
 
         Assert.Equal(HttpStatusCode.OK, (await client.SetActiveRoleAsync(PortalRoles.Teacher)).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, (await Get(client, "degrees")).Status);

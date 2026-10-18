@@ -19,6 +19,8 @@ public sealed record ConfigurationInput
 
     public string? Address { get; init; }
 
+    public decimal? CreditsToBeCompleted { get; init; }
+
     public bool? IsActive { get; init; }
 
     public Guid? DegreeId { get; init; }
@@ -46,6 +48,8 @@ public sealed record ConfigurationItem
     public string? Type { get; init; }
 
     public string? Address { get; init; }
+
+    public decimal? CreditsToBeCompleted { get; init; }
 
     public Guid? DegreeId { get; init; }
 

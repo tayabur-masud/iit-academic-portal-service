@@ -1,5 +1,6 @@
 using System.Net;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using IitAcademicPortal.Api.Tests.Infrastructure;
 using IitAcademicPortal.Domain.Identity;
 
@@ -62,6 +63,13 @@ public abstract class ConfigurationTestBase : IDisposable
     /// <summary>Creates a record and returns its identifier, failing the test if it was not created.</summary>
     protected static async Task<Guid> CreateAsync(PortalClient client, string route, object body)
     {
+        if (route == "degrees")
+        {
+            var payload = JsonSerializer.SerializeToNode(body)!.AsObject();
+            payload["creditsToBeCompleted"] ??= 120m;
+            body = payload;
+        }
+
         var (status, json) = await Post(client, route, body);
         Assert.True(status == HttpStatusCode.Created, $"Creating in {route} returned {status}: {json}");
         return json.GetProperty("id").GetGuid();

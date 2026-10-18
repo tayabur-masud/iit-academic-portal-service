@@ -17,6 +17,8 @@ public sealed class ConfigurationRequest
 
     public string? Address { get; init; }
 
+    public decimal? CreditsToBeCompleted { get; init; }
+
     public bool? IsActive { get; init; }
 
     public Guid? DegreeId { get; init; }
@@ -35,6 +37,7 @@ public sealed class ConfigurationRequest
         Code = Code,
         Type = Type,
         Address = Address,
+        CreditsToBeCompleted = CreditsToBeCompleted,
         IsActive = IsActive,
         DegreeId = DegreeId,
         StartingSemesterId = StartingSemesterId,
@@ -52,6 +55,7 @@ public sealed record ConfigurationItemResponse(
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Code,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Type,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Address,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] decimal? CreditsToBeCompleted,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] Guid? DegreeId,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] Guid? StartingSemesterId,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] Guid? AcademicSessionId,
@@ -65,7 +69,7 @@ public sealed record ConfigurationItemResponse(
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? LastModifiedBy)
 {
     public static ConfigurationItemResponse From(ConfigurationItem item) => new(
-        item.Id, item.Name, item.IsActive, item.Code, item.Type, item.Address,
+        item.Id, item.Name, item.IsActive, item.Code, item.Type, item.Address, item.CreditsToBeCompleted,
         item.DegreeId, item.StartingSemesterId, item.AcademicSessionId, item.DivisionId, item.DistrictId,
         item.CreatedAtUtc, item.CreatedByUserId, item.CreatedBy, item.LastModifiedAtUtc, item.LastModifiedByUserId, item.LastModifiedBy);
 }

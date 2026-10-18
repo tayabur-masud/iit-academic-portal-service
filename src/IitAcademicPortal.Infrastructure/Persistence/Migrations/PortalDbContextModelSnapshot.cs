@@ -293,6 +293,10 @@ namespace IitAcademicPortal.Infrastructure.Persistence.Migrations
                         .HasMaxLength(450)
                         .HasColumnType("character varying(450)");
 
+                    b.Property<decimal>("CreditsToBeCompleted")
+                        .HasPrecision(8, 2)
+                        .HasColumnType("numeric(8,2)");
+
                     b.Property<DateTime?>("DeletedAtUtc")
                         .HasColumnType("timestamp with time zone");
 
@@ -341,7 +345,10 @@ namespace IitAcademicPortal.Infrastructure.Persistence.Migrations
                         .IsUnique()
                         .HasFilter("\"IsDeleted\" = false");
 
-                    b.ToTable("Degrees", (string)null);
+                    b.ToTable("Degrees", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_Degrees_CreditsToBeCompleted_Positive", "\"CreditsToBeCompleted\" > 0");
+                        });
                 });
 
             modelBuilder.Entity("IitAcademicPortal.Domain.Configuration.Designation", b =>

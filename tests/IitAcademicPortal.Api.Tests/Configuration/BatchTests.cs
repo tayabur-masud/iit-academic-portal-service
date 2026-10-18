@@ -101,7 +101,7 @@ public sealed class BatchTests : ConfigurationTestBase
         using var admin = await AdminAsync();
         var r = await RefsAsync(admin);
         await Put(admin, "academic-sessions", r.Session, new { name = "Session", isActive = false });
-        await Put(admin, "degrees", r.Degree, new { name = "Degree", isActive = false });
+        await Put(admin, "degrees", r.Degree, new { name = "Degree", isActive = false, creditsToBeCompleted = 120m });
 
         var (status, problem) = await Post(admin, "batches", Batch("Batch 1", r));
 

@@ -84,6 +84,42 @@ public sealed class HallResource()
     protected override ConfigurationItem Project(Hall entity, ConfigurationItem item) => item with { Address = entity.Address };
 }
 
+/// <summary>A degree with its required credit threshold for future graduation-eligibility checks.</summary>
+public sealed class DegreeResource(DependentsCheck<Degree>? dependents = null)
+    : CodedResource<Degree>("degrees", "Degree", "degree", () => new Degree(), ConfigurationFields.Credits, dependents)
+{
+    private const decimal MaximumCreditsToBeCompleted = 999_999.99m;
+
+    protected override Task ApplyAsync(
+        Degree entity, ConfigurationInput input, ConfigurationContext context, ConfigurationErrors errors, bool isNew, CancellationToken cancellationToken)
+    {
+        if (input.CreditsToBeCompleted is not { } credits)
+        {
+            errors.Add("creditsToBeCompleted", "Enter the credits to be completed.");
+        }
+        else
+        {
+            var scale = (decimal.GetBits(credits)[3] >> 16) & 0x7f;
+            if (credits <= 0 || credits > MaximumCreditsToBeCompleted || scale > 2)
+            {
+                errors.Add("creditsToBeCompleted", "Enter a positive credit total with no more than two decimal places.");
+            }
+            else
+            {
+                entity.SetCreditsToBeCompleted(credits);
+            }
+        }
+
+        return Task.CompletedTask;
+    }
+
+    protected override void Describe(Degree entity, Dictionary<string, object?> values) =>
+        values["creditsToBeCompleted"] = entity.CreditsToBeCompleted;
+
+    protected override ConfigurationItem Project(Degree entity, ConfigurationItem item) =>
+        item with { CreditsToBeCompleted = entity.CreditsToBeCompleted };
+}
+
 /// <summary>
 /// A Batch of one Degree, starting in one Semester, in one Academic Session. All three references are required and
 /// must be active when chosen. The name is unique within the Degree, whatever the Session.

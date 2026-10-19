@@ -14,7 +14,7 @@ public sealed class ConfigurationAuthorizationTests : ConfigurationTestBase
     private static readonly string[] Resources =
     [
         "institutions", "education-boards", "education-groups", "examination-types", "degrees", "semesters",
-        "academic-sessions", "designations", "halls", "batches", "geography/divisions", "geography/districts", "geography/upazilas",
+        "academic-sessions", "designations", "halls", "batches", "courses", "geography/divisions", "geography/districts", "geography/upazilas",
     ];
 
     public static TheoryData<string, string, string> Calls()

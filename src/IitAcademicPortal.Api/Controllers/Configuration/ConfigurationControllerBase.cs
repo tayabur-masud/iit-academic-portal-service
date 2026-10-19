@@ -7,8 +7,8 @@ using Microsoft.AspNetCore.Mvc;
 namespace IitAcademicPortal.Api.Controllers.Configuration;
 
 /// <summary>
-/// The five operations every configuration resource shares: list, read, create, update (which also deactivates),
-/// and delete-if-unreferenced. Every action requires the session's active Admin role; the role is re-checked on
+/// The five operations configuration resources share: list, read, create, update (which also deactivates), and
+/// delete-if-unreferenced. A resource that is only ever deactivated (Course) answers DELETE with 405. Every action requires the session's active Admin role; the role is re-checked on
 /// each request, and a state-changing call also needs the anti-forgery token.
 /// </summary>
 [ApiController]
@@ -57,6 +57,13 @@ public abstract class ConfigurationControllerBase(CatalogService service) : Cont
     public async Task<IActionResult> Delete(Guid id, CancellationToken cancellationToken) =>
         ResourceRoute is { } route ? Map(await service.DeleteAsync(route, id, cancellationToken)) : UnknownResource();
 
+    // A resource that is only ever deactivated (Course) does not offer DELETE: 405 with the methods it does allow.
+    private ObjectResult MethodNotAllowed(string? detail)
+    {
+        Response.Headers.Allow = "GET, POST, PUT";
+        return Problem(statusCode: StatusCodes.Status405MethodNotAllowed, title: "Not allowed", detail: detail);
+    }
+
     private IActionResult UnknownResource() =>
         Problem(statusCode: StatusCodes.Status404NotFound, title: "Not found", detail: "There is no such configuration resource.");
 
@@ -70,6 +77,7 @@ public abstract class ConfigurationControllerBase(CatalogService service) : Cont
             statusCode: StatusCodes.Status404NotFound, title: "Not found", detail: "No record has that identifier."),
         ConfigurationOutcome.Conflict => Problem(
             statusCode: StatusCodes.Status409Conflict, title: "Record in use", detail: result.Message),
+        ConfigurationOutcome.NotSupported => MethodNotAllowed(result.Message),
         // The keys are the camelCase field names; building the response directly keeps them from being re-cased.
         ConfigurationOutcome.Invalid => ValidationProblem(new ValidationProblemDetails(result.Errors!.ToDictionary(e => e.Key, e => e.Value))),
         _ => Problem(statusCode: StatusCodes.Status500InternalServerError),

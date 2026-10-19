@@ -248,4 +248,102 @@ public sealed class ConfigurationPostgresTests(PostgresDatabaseFixture fixture) 
         var error = await Assert.ThrowsAsync<PostgresException>(() => invalid.ExecuteNonQueryAsync());
         Assert.Equal(PostgresErrorCodes.CheckViolation, error.SqlState);
     }
+
+    private static Course NewCourse(Guid degreeId, string? code = null, decimal credit = 3m, decimal? theory = null, decimal? lab = null, Guid? prerequisite = null)
+    {
+        var course = Named(Unique("Course"), new Course { DegreeId = degreeId, CreditHours = credit, TheoryCreditHours = theory, LabCreditHours = lab, PrerequisiteCourseId = prerequisite });
+        course.SetCode(code ?? Guid.NewGuid().ToString("N")[..10]);
+        return course;
+    }
+
+    private async Task<string?> SqlStateAsync(params ConfigurationRecord[] records)
+    {
+        await using var db = Db.CreateRuntimeContext();
+        db.AddRange(records);
+        var error = await Assert.ThrowsAnyAsync<Microsoft.EntityFrameworkCore.DbUpdateException>(() => db.SaveChangesAsync());
+        return (error.InnerException as PostgresException)?.SqlState;
+    }
+
+    [PostgresFact]
+    public async Task Course_credit_checks_reject_a_non_positive_total_parts_outside_it_and_parts_that_do_not_sum()
+    {
+        var degree = Named(Unique("Course degree"), new Degree());
+        await SaveAsync(degree);
+
+        await SaveAsync(NewCourse(degree.Id, theory: 3m), NewCourse(degree.Id, lab: 0m), NewCourse(degree.Id, credit: 4.5m, theory: 3m, lab: 1.5m));
+        Assert.Equal("23514", await SqlStateAsync(NewCourse(degree.Id, credit: 0m)));
+        Assert.Equal("23514", await SqlStateAsync(NewCourse(degree.Id, theory: 3.5m)));
+        Assert.Equal("23514", await SqlStateAsync(NewCourse(degree.Id, lab: -1m)));
+        Assert.Equal("23514", await SqlStateAsync(NewCourse(degree.Id, theory: 1m, lab: 1m)));
+
+        await using var connection = await Db.OpenAsync(Db.DdlConnectionString);
+        await using var command = new NpgsqlCommand(
+            "SELECT numeric_precision, numeric_scale FROM information_schema.columns WHERE table_name = 'Courses' AND column_name = 'TheoryCreditHours'", connection);
+        await using var reader = await command.ExecuteReaderAsync();
+        Assert.True(await reader.ReadAsync());
+        Assert.Equal(8, reader.GetInt32(0));
+        Assert.Equal(2, reader.GetInt32(1));
+    }
+
+    [PostgresFact]
+    public async Task A_course_code_is_unique_among_live_courses_of_every_degree_but_course_names_may_repeat()
+    {
+        var first = Named(Unique("Code degree A"), new Degree());
+        var second = Named(Unique("Code degree B"), new Degree());
+        await SaveAsync(first, second);
+        var code = "UQ-" + Guid.NewGuid().ToString("N")[..8];
+        var existing = NewCourse(first.Id, code);
+        existing.IsActive = false;
+        var sameName = NewCourse(first.Id);
+        sameName.Rename(existing.Name);
+        await SaveAsync(existing, sameName);
+
+        Assert.Equal(ConfigurationConflictKind.Duplicate, await ConflictAsync(NewCourse(second.Id, code.ToLowerInvariant())));
+
+        await using (var db = Db.CreateRuntimeContext())
+        {
+            var stored = await db.Courses.FindAsync(existing.Id);
+            stored!.MarkDeleted(DateTime.UtcNow, null);
+            await db.SaveChangesAsync();
+        }
+
+        await SaveAsync(NewCourse(second.Id, code));
+    }
+
+    [PostgresFact]
+    public async Task Course_degree_and_prerequisite_references_are_restrictive_and_indexed()
+    {
+        var degree = Named(Unique("Ref degree"), new Degree());
+        await SaveAsync(degree);
+        var basics = NewCourse(degree.Id);
+        await SaveAsync(basics);
+        var advanced = NewCourse(degree.Id, prerequisite: basics.Id);
+        await SaveAsync(advanced);
+
+        await using var ddl = await Db.OpenAsync(Db.DdlConnectionString);
+        foreach (var (table, id) in new[] { ("Degrees", degree.Id), ("Courses", basics.Id) })
+        {
+            var error = await Assert.ThrowsAsync<PostgresException>(() => PostgresTestDatabase.ExecuteAsync(ddl, $"DELETE FROM \"{table}\" WHERE \"Id\" = '{id}'"));
+            Assert.Contains(error.SqlState, new[] { "23001", "23503" });
+        }
+
+        var self = await Assert.ThrowsAsync<PostgresException>(() =>
+            PostgresTestDatabase.ExecuteAsync(ddl, $"UPDATE \"Courses\" SET \"PrerequisiteCourseId\" = \"Id\" WHERE \"Id\" = '{basics.Id}'"));
+        Assert.Equal("23514", self.SqlState);
+
+        await using var command = new NpgsqlCommand(
+            "SELECT indexname FROM pg_indexes WHERE tablename = 'Courses' ORDER BY indexname", ddl);
+        var indexes = new List<string>();
+        await using (var reader = await command.ExecuteReaderAsync())
+        {
+            while (await reader.ReadAsync())
+            {
+                indexes.Add(reader.GetString(0));
+            }
+        }
+
+        Assert.Contains("IX_Courses_DegreeId", indexes);
+        Assert.Contains("IX_Courses_PrerequisiteCourseId", indexes);
+        Assert.Contains("IX_Courses_NormalizedCode", indexes);
+    }
 }

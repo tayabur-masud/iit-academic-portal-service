@@ -412,6 +412,7 @@ the session's **active** Admin role (401 anonymous, 403 any other active role), 
 | Halls (university residential halls) | `halls` | optional `code`, optional `address` |
 | Education groups, examination types, semesters, academic sessions | `education-groups`, `examination-types`, `semesters`, `academic-sessions` | none |
 | Batches | `batches` | `degreeId`, `startingSemesterId`, `academicSessionId`, all required |
+| Courses | `courses` | required `code` (unique across all courses; names may repeat), `creditHours`, optional `theoryCreditHours` and `labCreditHours`, `type` (Mandatory, Elective), `degreeId`, optional `prerequisiteCourseId` (an active course of the same degree, no cycles). No `DELETE` (405): deactivate instead, which is refused (409) while an active course depends on it. Contract: `specs/008-course-management/contracts/courses-api.md` |
 | Divisions, districts, upazilas | `geography/divisions`, `geography/districts`, `geography/upazilas` | `divisionId` (district), `districtId` (upazila); no codes |
 
 Each collection has `GET` (list), `POST` (create), and `GET`, `PUT`, `DELETE` on `/{id}`. A `PUT` takes the full
@@ -434,9 +435,11 @@ writable record; set `isActive: false` to deactivate.
   blocks that delete; a deleted one does not. Every foreign key is still `RESTRICT`, so the database refuses a physical delete of a
   referenced row.
 - **Lists** take `search`, `status` (`active` default, `inactive`, `all`), `pageSize` (25, up to 100), and, for districts and
-  upazilas, `divisionId` or `districtId`. Page them by `page` (1-based; the response then adds `page`, `totalCount`, and
+  upazilas, `divisionId` or `districtId`; for courses, `degreeId`; for courses and institutions, `type` (case-insensitive; an unknown
+  type, or `type` on another catalog, is a field-keyed 400). Page them by `page` (1-based; the response then adds `page`, `totalCount`, and
   `totalPages`, which the frontend uses) or by `cursor` (no count, and the pages never shift while new records arrive). The
-  two cannot be combined. Lists return `{ items, nextCursor }` plus the totals in page mode.
+  two cannot be combined. Lists return `{ items, nextCursor }` plus the totals in page mode. They are ordered by normalized name then
+  ID, except courses, which are ordered by normalized code then ID.
 - **Errors**: `400` with field-keyed `errors` for missing or invalid values, duplicates, and bad references; fields a
   resource does not use are rejected, and so is any unknown JSON field (a client cannot name the audit actor).
 - **Audit**: each successful create, update, deactivate, and delete stages one `configuration.{resource}.{created|updated|

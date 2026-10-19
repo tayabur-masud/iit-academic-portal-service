@@ -38,19 +38,21 @@ public sealed class ConfigurationStore(PortalDbContext db) : IConfigurationStore
         Guid? afterId,
         int take,
         CancellationToken cancellationToken,
-        int skip = 0) where T : ConfigurationRecord
+        int skip = 0,
+        string? sortProperty = null) where T : ConfigurationRecord
     {
         var query = Matching(filter, normalizedSearch, status);
+        var sort = sortProperty ?? nameof(ConfigurationRecord.NormalizedName);
 
-        // Keyset continuation: strictly after the last row of the previous page in (name, id) order.
+        // Keyset continuation: strictly after the last row of the previous page in (sort key, id) order.
         if (afterName is not null && afterId is { } lastId)
         {
-            query = query.Where(e => string.Compare(e.NormalizedName, afterName) > 0
-                || (e.NormalizedName == afterName && e.Id.CompareTo(lastId) > 0));
+            query = query.Where(e => string.Compare(EF.Property<string>(e, sort), afterName) > 0
+                || (EF.Property<string>(e, sort) == afterName && e.Id.CompareTo(lastId) > 0));
         }
 
         // Numbered pages skip whole pages instead; the order is the same, so both modes agree on what comes first.
-        return await query.OrderBy(e => e.NormalizedName).ThenBy(e => e.Id).Skip(skip).Take(take).ToListAsync(cancellationToken);
+        return await query.OrderBy(e => EF.Property<string>(e, sort)).ThenBy(e => e.Id).Skip(skip).Take(take).ToListAsync(cancellationToken);
     }
 
     public Task<long> CountMatchingAsync<T>(
@@ -99,6 +101,13 @@ public sealed class ConfigurationStore(PortalDbContext db) : IConfigurationStore
 
     public Task<bool> DesignationInUseByTeacherAsync(Guid designationId, CancellationToken cancellationToken) =>
         db.TeacherProfiles.AnyAsync(t => t.DesignationId == designationId, cancellationToken);
+
+    public Task<Guid?> PrerequisiteOfAsync(Guid courseId, CancellationToken cancellationToken) =>
+        db.Courses.AsNoTracking().Where(c => c.Id == courseId).Select(c => c.PrerequisiteCourseId).FirstOrDefaultAsync(cancellationToken);
+
+    public Task<bool> HasActiveDependentCoursesAsync(Guid courseId, Guid? outsideDegreeId, CancellationToken cancellationToken) =>
+        db.Courses.AnyAsync(c => c.PrerequisiteCourseId == courseId && c.IsActive && c.Id != courseId
+            && (outsideDegreeId == null || c.DegreeId != outsideDegreeId), cancellationToken);
 
     public Task<bool> UsedByStudentsAsync<T>(Guid id, CancellationToken cancellationToken) where T : ConfigurationRecord =>
         typeof(T) == typeof(Degree) ? db.StudentAdmissions.AnyAsync(a => a.DegreeId == id, cancellationToken)

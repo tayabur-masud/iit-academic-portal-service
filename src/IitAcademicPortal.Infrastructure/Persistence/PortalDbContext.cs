@@ -49,6 +49,8 @@ public partial class PortalDbContext(DbContextOptions<PortalDbContext> options) 
 
     public DbSet<Batch> Batches => Set<Batch>();
 
+    public DbSet<Course> Courses => Set<Course>();
+
     public DbSet<Division> Divisions => Set<Division>();
 
     public DbSet<District> Districts => Set<District>();
@@ -335,6 +337,33 @@ public partial class PortalDbContext(DbContextOptions<PortalDbContext> options) 
             e.HasIndex(x => x.StartingSemesterId);
             e.HasIndex(x => x.AcademicSessionId);
         });
+
+        // A course name need not be unique; its code is required and unique across every live course. Credits use the Degree's
+        // precision, with checks for a positive total, parts within the total, and both parts summing to it. Degree and prerequisite
+        // links are restrictive, so neither can disappear while a course refers to it.
+        MapRecord<Course>(builder, "Courses", unique: false).Entity<Course>(e =>
+        {
+            e.Property(x => x.CreditHours).HasPrecision(8, 2).IsRequired();
+            e.Property(x => x.TheoryCreditHours).HasPrecision(8, 2);
+            e.Property(x => x.LabCreditHours).HasPrecision(8, 2);
+            e.Property(x => x.Type).HasConversion<string>().HasMaxLength(16).IsRequired();
+            e.ToTable(t =>
+            {
+                t.HasCheckConstraint("CK_Courses_CreditHours_Positive", "\"CreditHours\" > 0");
+                t.HasCheckConstraint("CK_Courses_TheoryCreditHours_Range",
+                    "\"TheoryCreditHours\" IS NULL OR (\"TheoryCreditHours\" >= 0 AND \"TheoryCreditHours\" <= \"CreditHours\")");
+                t.HasCheckConstraint("CK_Courses_LabCreditHours_Range",
+                    "\"LabCreditHours\" IS NULL OR (\"LabCreditHours\" >= 0 AND \"LabCreditHours\" <= \"CreditHours\")");
+                t.HasCheckConstraint("CK_Courses_CreditParts_Sum",
+                    "\"TheoryCreditHours\" IS NULL OR \"LabCreditHours\" IS NULL OR \"TheoryCreditHours\" + \"LabCreditHours\" = \"CreditHours\"");
+                t.HasCheckConstraint("CK_Courses_Prerequisite_NotSelf", "\"PrerequisiteCourseId\" IS NULL OR \"PrerequisiteCourseId\" <> \"Id\"");
+            });
+            e.HasOne<Degree>().WithMany().HasForeignKey(x => x.DegreeId).OnDelete(DeleteBehavior.Restrict);
+            e.HasOne<Course>().WithMany().HasForeignKey(x => x.PrerequisiteCourseId).OnDelete(DeleteBehavior.Restrict);
+            e.HasIndex(x => x.DegreeId);
+            e.HasIndex(x => x.PrerequisiteCourseId);
+        });
+        MapCode<Course>(builder);
 
         // Division names are global; District and Upazila names are unique within their parent.
         MapRecord<Division>(builder, "Divisions", unique: true);

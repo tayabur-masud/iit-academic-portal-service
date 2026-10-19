@@ -640,4 +640,19 @@ public sealed class CatalogCrudTests : ConfigurationTestBase
         Assert.True(HasError(problem, "creditsToBeCompleted"));
         Assert.Empty((await Get(admin, "semesters", "?status=all")).Body.GetProperty("items").EnumerateArray());
     }
+
+    [Fact]
+    public async Task An_institution_list_filters_by_type()
+    {
+        using var admin = await AdminAsync();
+        await CreateAsync(admin, "institutions", new { name = "Dhaka College", type = "College" });
+        await CreateAsync(admin, "institutions", new { name = "Motijheel School", type = "School" });
+
+        var colleges = (await Get(admin, "institutions", "?type=college")).Body;
+        var (status, problem) = await Get(admin, "institutions", "?type=Elective");
+
+        Assert.Equal(["Dhaka College"], Names(colleges));
+        Assert.Equal(HttpStatusCode.BadRequest, status);
+        Assert.True(HasError(problem, "type"));
+    }
 }

@@ -21,6 +21,14 @@ public sealed record ConfigurationInput
 
     public decimal? CreditsToBeCompleted { get; init; }
 
+    public decimal? CreditHours { get; init; }
+
+    public decimal? TheoryCreditHours { get; init; }
+
+    public decimal? LabCreditHours { get; init; }
+
+    public Guid? PrerequisiteCourseId { get; init; }
+
     public bool? IsActive { get; init; }
 
     public Guid? DegreeId { get; init; }
@@ -50,6 +58,14 @@ public sealed record ConfigurationItem
     public string? Address { get; init; }
 
     public decimal? CreditsToBeCompleted { get; init; }
+
+    public decimal? CreditHours { get; init; }
+
+    public decimal? TheoryCreditHours { get; init; }
+
+    public decimal? LabCreditHours { get; init; }
+
+    public Guid? PrerequisiteCourseId { get; init; }
 
     public Guid? DegreeId { get; init; }
 
@@ -82,7 +98,8 @@ public sealed record ConfigurationQuery(
     Guid? ParentId,
     int? PageSize,
     string? Cursor,
-    int? Page = null);
+    int? Page = null,
+    string? Type = null);
 
 /// <summary>
 /// One page of records. <c>Page</c>, <c>TotalCount</c>, and <c>TotalPages</c> are set only for a numbered-page request,
@@ -103,6 +120,9 @@ public enum ConfigurationOutcome
     NotFound,
     Invalid,
     Conflict,
+
+    /// <summary>The resource does not offer this operation (Course has no delete).</summary>
+    NotSupported,
 }
 
 /// <summary>The result of a configuration operation: a value, field-keyed errors, or a conflict explanation.</summary>
@@ -121,6 +141,8 @@ public sealed class ConfigurationErrors
     private readonly Dictionary<string, List<string>> errors = new(StringComparer.Ordinal);
 
     public bool Any => errors.Count > 0;
+
+    public bool Has(string field) => errors.ContainsKey(field);
 
     public void Add(string field, string message)
     {

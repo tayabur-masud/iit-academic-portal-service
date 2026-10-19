@@ -386,12 +386,16 @@ one `StudentProfile` linked to one Student account (the account keeps the email)
 - **Hall and registration number** are optional at admission and updated independently; a newly chosen Hall must be active; the
   registration number is unique across all admissions (case- and space-insensitive).
 - **Addresses** store free-text details and an Upazila; District and Division are always derived from it.
+- **Academic history** chooses the school or college, university, institution, board, and group from the Configuration catalogs (institutions
+  filtered by type), storing the reference plus a name snapshot that later renames never rewrite; a value not in a catalog is typed and kept
+  as text. Other history values are text as written on the form.
 - **Graduation eligibility** (`GET /api/admin/students/{admissionId}/graduation-eligibility`) compares the Degree's
   `CreditsToBeCompleted` with the passed-course credits of that admission from `ICompletedCreditsProvider`, and needs the Hall and
   registration number. Nothing is stored and results are never blocked. **For the academic-results feature:** register an
   `ICompletedCreditsProvider` keyed by admission ID; until then `UnavailableCompletedCreditsProvider` reports the credits as unavailable,
   so no admission is eligible.
-- Deleting a Degree, Batch, Hall, or Upazila that a student uses is refused (deactivate it instead).
+- Deleting a Degree, Batch, Hall, Upazila, educational institution, education board, or education group that a student uses is refused
+  (deactivate it instead).
 
 ## Configuration (Admin reference data)
 

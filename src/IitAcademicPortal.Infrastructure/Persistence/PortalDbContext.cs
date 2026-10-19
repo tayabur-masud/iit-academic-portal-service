@@ -185,7 +185,8 @@ public partial class PortalDbContext(DbContextOptions<PortalDbContext> options) 
     /// <summary>
     /// Student Management: one profile per account (unique, restrictive), many admissions per profile with at most one per Degree and
     /// Batch, a registration number unique across all admissions once normalized, and restrictive links to the Configuration records
-    /// they use. Academic history rows belong to their profile and keep every source value as text (no catalog foreign keys).
+    /// they use. Academic history rows belong to their profile; their institution, board, and group may reference a catalog record and
+    /// always keep a name snapshot, and every other value is text.
     /// </summary>
     private static void ConfigureStudents(ModelBuilder builder)
     {
@@ -239,6 +240,13 @@ public partial class PortalDbContext(DbContextOptions<PortalDbContext> options) 
             }
 
             history.HasIndex(h => new { h.StudentProfileId, h.SortOrder });
+
+            // Optional catalog choices, restrictive so a record that history refers to cannot be removed.
+            history.HasOne<EducationalInstitution>().WithMany().HasForeignKey(h => h.SchoolOrCollegeId).OnDelete(DeleteBehavior.Restrict);
+            history.HasOne<EducationalInstitution>().WithMany().HasForeignKey(h => h.UniversityId).OnDelete(DeleteBehavior.Restrict);
+            history.HasOne<EducationalInstitution>().WithMany().HasForeignKey(h => h.InstitutionId).OnDelete(DeleteBehavior.Restrict);
+            history.HasOne<EducationBoard>().WithMany().HasForeignKey(h => h.BoardId).OnDelete(DeleteBehavior.Restrict);
+            history.HasOne<EducationGroup>().WithMany().HasForeignKey(h => h.GroupId).OnDelete(DeleteBehavior.Restrict);
         });
 
         builder.Entity<StudentAdmissionRecord>(admission =>

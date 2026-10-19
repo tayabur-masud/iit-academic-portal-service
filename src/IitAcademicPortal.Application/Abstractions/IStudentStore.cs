@@ -1,10 +1,12 @@
 using IitAcademicPortal.Application.Students;
+using IitAcademicPortal.Domain.Configuration;
 using IitAcademicPortal.Domain.Students;
 
 namespace IitAcademicPortal.Application.Abstractions;
 
 /// <summary>A Configuration record a student refers to: whether it is live (not deleted) is implied by finding it at all.</summary>
-public sealed record StudentReference(Guid Id, string Name, bool IsActive, Guid? ParentId = null, decimal? CreditsToBeCompleted = null);
+public sealed record StudentReference(
+    Guid Id, string Name, bool IsActive, Guid? ParentId = null, decimal? CreditsToBeCompleted = null, EducationalInstitutionType? InstitutionType = null);
 
 public enum StudentConflictKind
 {
@@ -55,6 +57,13 @@ public interface IStudentStore
 
     /// <summary>The live Upazila with its District as <see cref="StudentReference.ParentId"/>, or null.</summary>
     Task<StudentReference?> FindUpazilaAsync(Guid upazilaId, CancellationToken cancellationToken);
+
+    /// <summary>The live educational institution with its type, or null.</summary>
+    Task<StudentReference?> FindInstitutionAsync(Guid institutionId, CancellationToken cancellationToken);
+
+    Task<StudentReference?> FindBoardAsync(Guid boardId, CancellationToken cancellationToken);
+
+    Task<StudentReference?> FindGroupAsync(Guid groupId, CancellationToken cancellationToken);
 
     void Add(StudentProfile profile);
 

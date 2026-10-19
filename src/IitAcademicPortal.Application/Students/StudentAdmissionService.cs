@@ -38,6 +38,10 @@ public sealed class StudentAdmissionService(
 
     public const string DuplicateRegistrationMessage = "Another admission already has this registration number.";
 
+    // The catalog records chosen in the history being saved, found during validation and used for the name snapshots. The service is
+    // scoped to one request and handles one write per request.
+    private readonly Dictionary<Guid, StudentReference> catalog = [];
+
     public async Task<StudentResult<StudentListPage>> ListAsync(StudentQuery query, CancellationToken cancellationToken)
     {
         var errors = new Dictionary<string, string[]>(StringComparer.Ordinal);
@@ -330,7 +334,7 @@ public sealed class StudentAdmissionService(
             errors.Add("assignedHallId", "Select an active hall.");
         }
 
-        ValidateHistory(input.AcademicHistory, profile, errors);
+        await ValidateHistoryAsync(input.AcademicHistory, profile, errors, cancellationToken);
     }
 
     private async Task ValidateAddressAsync(string key, StudentAddressInput? address, Guid? current, StudentErrors errors, CancellationToken cancellationToken)
@@ -352,7 +356,8 @@ public sealed class StudentAdmissionService(
         }
     }
 
-    private static void ValidateHistory(IReadOnlyList<AcademicHistoryInput>? history, StudentProfile? profile, StudentErrors errors)
+    private async Task ValidateHistoryAsync(
+        IReadOnlyList<AcademicHistoryInput>? history, StudentProfile? profile, StudentErrors errors, CancellationToken cancellationToken)
     {
         if (history is null)
         {
@@ -391,7 +396,70 @@ public sealed class StudentAdmissionService(
             {
                 errors.Optional($"{key}.{field}", value, StudentAcademicHistory.MaxValueLength);
             }
+
+            var row = entry.Id is { } rowId ? profile?.AcademicHistory.FirstOrDefault(h => h.Id == rowId) : null;
+            await ValidateChoiceAsync($"{key}.schoolOrCollegeId", entry.SchoolOrCollegeId, row?.SchoolOrCollegeId, CatalogKind.SchoolOrCollege, errors, cancellationToken);
+            await ValidateChoiceAsync($"{key}.universityId", entry.UniversityId, row?.UniversityId, CatalogKind.University, errors, cancellationToken);
+            await ValidateChoiceAsync($"{key}.institutionId", entry.InstitutionId, row?.InstitutionId, CatalogKind.Institution, errors, cancellationToken);
+            await ValidateChoiceAsync($"{key}.boardId", entry.BoardId, row?.BoardId, CatalogKind.Board, errors, cancellationToken);
+            await ValidateChoiceAsync($"{key}.groupId", entry.GroupId, row?.GroupId, CatalogKind.Group, errors, cancellationToken);
         }
+    }
+
+    private enum CatalogKind
+    {
+        SchoolOrCollege,
+        University,
+        Institution,
+        Board,
+        Group,
+    }
+
+    /// <summary>
+    /// A catalog choice must exist; a newly chosen one must be active (the one a row already has may stay after it is deactivated), a
+    /// school or college must be a School or College, and a university a University. Found records are kept for the name snapshot.
+    /// </summary>
+    private async Task ValidateChoiceAsync(
+        string key, Guid? id, Guid? current, CatalogKind kind, StudentErrors errors, CancellationToken cancellationToken)
+    {
+        if (id is not { } chosen)
+        {
+            return;
+        }
+
+        var record = kind switch
+        {
+            CatalogKind.Board => await store.FindBoardAsync(chosen, cancellationToken),
+            CatalogKind.Group => await store.FindGroupAsync(chosen, cancellationToken),
+            _ => await store.FindInstitutionAsync(chosen, cancellationToken),
+        };
+        var noun = kind switch
+        {
+            CatalogKind.SchoolOrCollege => "school or college",
+            CatalogKind.University => "university",
+            CatalogKind.Institution => "institution",
+            CatalogKind.Board => "board",
+            _ => "group",
+        };
+        if (record is null || (!record.IsActive && chosen != current))
+        {
+            errors.Add(key, $"Select an active {noun}, or type the name if it is not listed.");
+            return;
+        }
+
+        var typeMatches = kind switch
+        {
+            CatalogKind.SchoolOrCollege => record.InstitutionType is EducationalInstitutionType.School or EducationalInstitutionType.College,
+            CatalogKind.University => record.InstitutionType is EducationalInstitutionType.University,
+            _ => true,
+        };
+        if (!typeMatches)
+        {
+            errors.Add(key, $"Select a {noun}.");
+            return;
+        }
+
+        catalog[chosen] = record;
     }
 
     internal static AcademicHistoryCategory? ParseCategory(string? category) =>
@@ -409,7 +477,7 @@ public sealed class StudentAdmissionService(
     ];
 
     /// <summary>Copies the shared profile values and replaces the history. Returns the indicator fields that changed.</summary>
-    private static List<AuditFieldChange> ApplyProfile(StudentProfile profile, StudentAdmissionInput input)
+    private List<AuditFieldChange> ApplyProfile(StudentProfile profile, StudentAdmissionInput input)
     {
         var changes = new List<AuditFieldChange>();
         void Set(string field, string? current, string? next, Action<string?> assign)
@@ -459,8 +527,12 @@ public sealed class StudentAdmissionService(
         return changes;
     }
 
-    /// <summary>Makes the profile's history equal the submitted list: kept rows updated in place, new rows added, the rest removed.</summary>
-    private static bool ReplaceHistory(StudentProfile profile, IReadOnlyList<AcademicHistoryInput> entries)
+    /// <summary>
+    /// Makes the profile's history equal the submitted list: kept rows updated in place, new rows added, the rest removed. A newly chosen
+    /// catalog record sets its name as the snapshot; a choice the row already had keeps the snapshot it was saved with, so renaming the
+    /// record later never rewrites history; without a choice the typed name is kept.
+    /// </summary>
+    private bool ReplaceHistory(StudentProfile profile, IReadOnlyList<AcademicHistoryInput> entries)
     {
         var before = HistorySignature(profile.AcademicHistory.OrderBy(h => h.SortOrder));
         var kept = new HashSet<Guid>();
@@ -478,13 +550,13 @@ public sealed class StudentAdmissionService(
             row.SortOrder = i;
             row.Category = ParseCategory(entry.Category)!.Value;
             row.Examination = Clean(entry.Examination);
-            row.SchoolOrCollege = Clean(entry.SchoolOrCollege);
-            row.Board = Clean(entry.Board);
-            row.Group = Clean(entry.Group);
+            (row.SchoolOrCollegeId, row.SchoolOrCollege) = Choice(entry.SchoolOrCollegeId, entry.SchoolOrCollege, row.SchoolOrCollegeId, row.SchoolOrCollege);
+            (row.BoardId, row.Board) = Choice(entry.BoardId, entry.Board, row.BoardId, row.Board);
+            (row.GroupId, row.Group) = Choice(entry.GroupId, entry.Group, row.GroupId, row.Group);
             row.Department = Clean(entry.Department);
-            row.University = Clean(entry.University);
+            (row.UniversityId, row.University) = Choice(entry.UniversityId, entry.University, row.UniversityId, row.University);
             row.Subject = Clean(entry.Subject);
-            row.Institution = Clean(entry.Institution);
+            (row.InstitutionId, row.Institution) = Choice(entry.InstitutionId, entry.Institution, row.InstitutionId, row.Institution);
             row.Year = Clean(entry.Year);
             row.MarksObtained = Clean(entry.MarksObtained);
             row.MarksPercentage = Clean(entry.MarksPercentage);
@@ -497,9 +569,15 @@ public sealed class StudentAdmissionService(
         return before != HistorySignature(profile.AcademicHistory.OrderBy(h => h.SortOrder));
     }
 
+    private (Guid? Id, string? Name) Choice(Guid? chosen, string? typed, Guid? currentId, string? currentName) =>
+        chosen is { } id
+            ? (id, id == currentId && currentName is not null ? currentName : catalog[id].Name)
+            : (null, Clean(typed));
+
     private static string HistorySignature(IEnumerable<StudentAcademicHistory> rows) => string.Join('\n', rows.Select(h => string.Join('|',
-        h.Id, h.Category, h.Examination, h.SchoolOrCollege, h.Board, h.Group, h.Department, h.University, h.Subject, h.Institution, h.Year,
-        h.MarksObtained, h.MarksPercentage, h.Cgpa, h.Class, h.Division)));
+        h.Id, h.Category, h.Examination, h.SchoolOrCollege, h.SchoolOrCollegeId, h.Board, h.BoardId, h.Group, h.GroupId, h.Department,
+        h.University, h.UniversityId, h.Subject, h.Institution, h.InstitutionId, h.Year, h.MarksObtained, h.MarksPercentage, h.Cgpa, h.Class,
+        h.Division)));
 
     private static List<AuditFieldChange> ApplyAdmission(
         StudentAdmissionRecord admission, StudentAdmissionInput input, (string? Display, string? Normalized) registration, bool isNew)

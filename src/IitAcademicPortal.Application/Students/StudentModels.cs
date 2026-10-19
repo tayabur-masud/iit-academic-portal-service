@@ -6,7 +6,11 @@ namespace IitAcademicPortal.Application.Students;
 /// <summary>A mailing or permanent address as entered: free-text details, an Upazila, and an optional cell number.</summary>
 public sealed record StudentAddressInput(string? Details, Guid? UpazilaId, string? CellNumber);
 
-/// <summary>One prior-education row as entered. <see cref="Id"/> identifies an existing row to keep; absent means a new row.</summary>
+/// <summary>
+/// One prior-education row as entered. <see cref="Id"/> identifies an existing row to keep; absent means a new row. The catalog IDs are
+/// set when the school or college, university, institution, board, or group was chosen from Configuration; otherwise the typed name is
+/// kept on its own.
+/// </summary>
 public sealed record AcademicHistoryInput(
     Guid? Id,
     string? Category,
@@ -23,7 +27,12 @@ public sealed record AcademicHistoryInput(
     string? MarksPercentage,
     string? Cgpa,
     string? Class,
-    string? Division);
+    string? Division,
+    Guid? SchoolOrCollegeId = null,
+    Guid? UniversityId = null,
+    Guid? InstitutionId = null,
+    Guid? BoardId = null,
+    Guid? GroupId = null);
 
 /// <summary>
 /// The writable fields of an admission form: the shared profile, its academic history, and this admission. <see cref="Email"/> is used
@@ -82,7 +91,12 @@ public sealed record AcademicHistoryEntry(
     string? MarksPercentage,
     string? Cgpa,
     string? Class,
-    string? Division);
+    string? Division,
+    Guid? SchoolOrCollegeId = null,
+    Guid? UniversityId = null,
+    Guid? InstitutionId = null,
+    Guid? BoardId = null,
+    Guid? GroupId = null);
 
 /// <summary>One admission of a Student, as listed on the profile (each program stays a separate admission).</summary>
 public sealed record StudentAdmissionSummary(

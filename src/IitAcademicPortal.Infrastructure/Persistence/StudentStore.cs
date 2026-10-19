@@ -38,22 +38,37 @@ public sealed class StudentStore(PortalDbContext db) : IStudentStore
 
     public Task<StudentReference?> FindDegreeAsync(Guid degreeId, CancellationToken cancellationToken) =>
         db.Degrees.AsNoTracking().Where(d => d.Id == degreeId)
-            .Select(d => new StudentReference(d.Id, d.Name, d.IsActive, null, d.CreditsToBeCompleted))
+            .Select(d => new StudentReference(d.Id, d.Name, d.IsActive, null, d.CreditsToBeCompleted, null))
             .FirstOrDefaultAsync(cancellationToken);
 
     public Task<StudentReference?> FindBatchAsync(Guid batchId, CancellationToken cancellationToken) =>
         db.Batches.AsNoTracking().Where(b => b.Id == batchId)
-            .Select(b => new StudentReference(b.Id, b.Name, b.IsActive, b.DegreeId, null))
+            .Select(b => new StudentReference(b.Id, b.Name, b.IsActive, b.DegreeId, null, null))
             .FirstOrDefaultAsync(cancellationToken);
 
     public Task<StudentReference?> FindHallAsync(Guid hallId, CancellationToken cancellationToken) =>
         db.Halls.AsNoTracking().Where(h => h.Id == hallId)
-            .Select(h => new StudentReference(h.Id, h.Name, h.IsActive, null, null))
+            .Select(h => new StudentReference(h.Id, h.Name, h.IsActive, null, null, null))
             .FirstOrDefaultAsync(cancellationToken);
 
     public Task<StudentReference?> FindUpazilaAsync(Guid upazilaId, CancellationToken cancellationToken) =>
         db.Upazilas.AsNoTracking().Where(u => u.Id == upazilaId)
-            .Select(u => new StudentReference(u.Id, u.Name, u.IsActive, u.DistrictId, null))
+            .Select(u => new StudentReference(u.Id, u.Name, u.IsActive, u.DistrictId, null, null))
+            .FirstOrDefaultAsync(cancellationToken);
+
+    public Task<StudentReference?> FindInstitutionAsync(Guid institutionId, CancellationToken cancellationToken) =>
+        db.EducationalInstitutions.AsNoTracking().Where(i => i.Id == institutionId)
+            .Select(i => new StudentReference(i.Id, i.Name, i.IsActive, null, null, i.Type))
+            .FirstOrDefaultAsync(cancellationToken);
+
+    public Task<StudentReference?> FindBoardAsync(Guid boardId, CancellationToken cancellationToken) =>
+        db.EducationBoards.AsNoTracking().Where(b => b.Id == boardId)
+            .Select(b => new StudentReference(b.Id, b.Name, b.IsActive, null, null, null))
+            .FirstOrDefaultAsync(cancellationToken);
+
+    public Task<StudentReference?> FindGroupAsync(Guid groupId, CancellationToken cancellationToken) =>
+        db.EducationGroups.AsNoTracking().Where(g => g.Id == groupId)
+            .Select(g => new StudentReference(g.Id, g.Name, g.IsActive, null, null, null))
             .FirstOrDefaultAsync(cancellationToken);
 
     public void Add(StudentProfile profile) => db.StudentProfiles.Add(profile);
@@ -175,7 +190,8 @@ public sealed class StudentStore(PortalDbContext db) : IStudentStore
 
         var history = profile.AcademicHistory.OrderBy(h => h.SortOrder).ThenBy(h => h.Id).Select(h => new AcademicHistoryEntry(
             h.Id, h.Category, h.Examination, h.SchoolOrCollege, h.Board, h.Group, h.Department, h.University, h.Subject, h.Institution,
-            h.Year, h.MarksObtained, h.MarksPercentage, h.Cgpa, h.Class, h.Division)).ToList();
+            h.Year, h.MarksObtained, h.MarksPercentage, h.Cgpa, h.Class, h.Division,
+            h.SchoolOrCollegeId, h.UniversityId, h.InstitutionId, h.BoardId, h.GroupId)).ToList();
 
         return new StudentProfileDetail(
             profile.Id, profile.UserId, account.Email ?? string.Empty, account.AccountStatus, profile.ApplicantName, profile.FatherName,

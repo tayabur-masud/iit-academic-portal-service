@@ -58,6 +58,9 @@ public sealed class InstitutionResource()
         return Task.CompletedTask;
     }
 
+    protected override Task<bool> HasDependentsAsync(EducationalInstitution entity, ConfigurationContext context, CancellationToken cancellationToken) =>
+        context.Store.UsedByStudentsAsync<EducationalInstitution>(entity.Id, cancellationToken);
+
     protected override void Describe(EducationalInstitution entity, Dictionary<string, object?> values)
     {
         values["type"] = entity.Type.ToString();

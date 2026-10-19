@@ -16,8 +16,10 @@ public sealed class StudentAddressRequest
 }
 
 /// <summary>
-/// One prior-education row. <c>category</c> is SscOLevel, HscALevel, BachelorGraduation, Master, Pgdit, or Other; every other value is
-/// optional text kept exactly as written on the paper form. Send <c>id</c> to keep an existing row.
+/// One prior-education row. <c>category</c> is SscOLevel, HscALevel, BachelorGraduation, Master, Pgdit, or Other. The school or college,
+/// university, institution, board, and group may name a Configuration record by ID (<c>schoolOrCollegeId</c>, <c>universityId</c>,
+/// <c>institutionId</c>, <c>boardId</c>, <c>groupId</c>); the service then keeps that record's name as the snapshot. Without an ID the
+/// typed name is kept as written. Every other value is optional text. Send <c>id</c> to keep an existing row.
 /// </summary>
 public sealed class AcademicHistoryRequest
 {
@@ -53,9 +55,19 @@ public sealed class AcademicHistoryRequest
 
     public string? Division { get; init; }
 
+    public Guid? SchoolOrCollegeId { get; init; }
+
+    public Guid? UniversityId { get; init; }
+
+    public Guid? InstitutionId { get; init; }
+
+    public Guid? BoardId { get; init; }
+
+    public Guid? GroupId { get; init; }
+
     public AcademicHistoryInput ToInput() => new(
         Id, Category, Examination, SchoolOrCollege, Board, Group, Department, University, Subject, Institution, Year, MarksObtained,
-        MarksPercentage, Cgpa, Class, Division);
+        MarksPercentage, Cgpa, Class, Division, SchoolOrCollegeId, UniversityId, InstitutionId, BoardId, GroupId);
 }
 
 /// <summary>
@@ -169,11 +181,17 @@ public sealed record AcademicHistoryResponse(
     string? MarksPercentage,
     string? Cgpa,
     string? Class,
-    string? Division)
+    string? Division,
+    Guid? SchoolOrCollegeId,
+    Guid? UniversityId,
+    Guid? InstitutionId,
+    Guid? BoardId,
+    Guid? GroupId)
 {
     public static AcademicHistoryResponse From(AcademicHistoryEntry h) => new(
         h.Id, h.Category.ToString(), h.Examination, h.SchoolOrCollege, h.Board, h.Group, h.Department, h.University, h.Subject,
-        h.Institution, h.Year, h.MarksObtained, h.MarksPercentage, h.Cgpa, h.Class, h.Division);
+        h.Institution, h.Year, h.MarksObtained, h.MarksPercentage, h.Cgpa, h.Class, h.Division,
+        h.SchoolOrCollegeId, h.UniversityId, h.InstitutionId, h.BoardId, h.GroupId);
 }
 
 public sealed record StudentAdmissionSummaryResponse(

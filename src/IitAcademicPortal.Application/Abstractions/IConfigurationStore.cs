@@ -55,8 +55,9 @@ public interface IConfigurationStore
     Task<bool> DesignationInUseByTeacherAsync(Guid designationId, CancellationToken cancellationToken);
 
     /// <summary>
-    /// True when a Student admission (Degree, Batch, Hall) or a Student address (Upazila) uses this record, which blocks deleting it
-    /// (deactivate it instead). Other kinds are never used by students.
+    /// True when a Student admission (Degree, Batch, Hall), a Student address (Upazila), or a Student academic-history entry
+    /// (educational institution, board, group) uses this record, which blocks deleting it (deactivate it instead). Other kinds are never
+    /// used by students.
     /// </summary>
     Task<bool> UsedByStudentsAsync<T>(Guid id, CancellationToken cancellationToken) where T : ConfigurationRecord;
 

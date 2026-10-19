@@ -169,6 +169,11 @@ public abstract class StudentTestBase : UserManagementTestBase
                 ["cgpa"] = Text(h, "cgpa"),
                 ["class"] = Text(h, "class"),
                 ["division"] = Text(h, "division"),
+                ["schoolOrCollegeId"] = Text(h, "schoolOrCollegeId"),
+                ["universityId"] = Text(h, "universityId"),
+                ["institutionId"] = Text(h, "institutionId"),
+                ["boardId"] = Text(h, "boardId"),
+                ["groupId"] = Text(h, "groupId"),
             }).ToArray(),
         };
     }

@@ -1665,6 +1665,9 @@ namespace IitAcademicPortal.Infrastructure.Persistence.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)");
 
+                    b.Property<Guid?>("BoardId")
+                        .HasColumnType("uuid");
+
                     b.Property<string>("Category")
                         .IsRequired()
                         .HasMaxLength(32)
@@ -1703,9 +1706,15 @@ namespace IitAcademicPortal.Infrastructure.Persistence.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)");
 
+                    b.Property<Guid?>("GroupId")
+                        .HasColumnType("uuid");
+
                     b.Property<string>("Institution")
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)");
+
+                    b.Property<Guid?>("InstitutionId")
+                        .HasColumnType("uuid");
 
                     b.Property<DateTime>("LastModifiedAtUtc")
                         .ValueGeneratedOnAdd()
@@ -1728,6 +1737,9 @@ namespace IitAcademicPortal.Infrastructure.Persistence.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)");
 
+                    b.Property<Guid?>("SchoolOrCollegeId")
+                        .HasColumnType("uuid");
+
                     b.Property<int>("SortOrder")
                         .HasColumnType("integer");
 
@@ -1742,11 +1754,24 @@ namespace IitAcademicPortal.Infrastructure.Persistence.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)");
 
+                    b.Property<Guid?>("UniversityId")
+                        .HasColumnType("uuid");
+
                     b.Property<string>("Year")
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("BoardId");
+
+                    b.HasIndex("GroupId");
+
+                    b.HasIndex("InstitutionId");
+
+                    b.HasIndex("SchoolOrCollegeId");
+
+                    b.HasIndex("UniversityId");
 
                     b.HasIndex("StudentProfileId", "SortOrder");
 
@@ -2257,11 +2282,36 @@ namespace IitAcademicPortal.Infrastructure.Persistence.Migrations
 
             modelBuilder.Entity("IitAcademicPortal.Domain.Students.StudentAcademicHistory", b =>
                 {
+                    b.HasOne("IitAcademicPortal.Domain.Configuration.EducationBoard", null)
+                        .WithMany()
+                        .HasForeignKey("BoardId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("IitAcademicPortal.Domain.Configuration.EducationGroup", null)
+                        .WithMany()
+                        .HasForeignKey("GroupId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("IitAcademicPortal.Domain.Configuration.EducationalInstitution", null)
+                        .WithMany()
+                        .HasForeignKey("InstitutionId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("IitAcademicPortal.Domain.Configuration.EducationalInstitution", null)
+                        .WithMany()
+                        .HasForeignKey("SchoolOrCollegeId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.HasOne("IitAcademicPortal.Domain.Students.StudentProfile", null)
                         .WithMany("AcademicHistory")
                         .HasForeignKey("StudentProfileId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+
+                    b.HasOne("IitAcademicPortal.Domain.Configuration.EducationalInstitution", null)
+                        .WithMany()
+                        .HasForeignKey("UniversityId")
+                        .OnDelete(DeleteBehavior.Restrict);
                 });
 
             modelBuilder.Entity("IitAcademicPortal.Domain.Students.StudentAdmissionRecord", b =>

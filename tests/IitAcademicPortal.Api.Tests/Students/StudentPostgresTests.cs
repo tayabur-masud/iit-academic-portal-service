@@ -211,6 +211,37 @@ public sealed class StudentPostgresTests(PostgresDatabaseFixture fixture) : ICla
     }
 
     [PostgresFact]
+    public async Task Academic_history_catalog_references_are_restrictive()
+    {
+        var seed = await SeedAsync();
+        var profile = await AddProfileAsync(seed);
+        var institution = Named(new EducationalInstitution { Type = EducationalInstitutionType.University });
+        var board = Named(new EducationBoard());
+        var group = Named(new EducationGroup());
+        await using (var db = Db.CreateRuntimeContext())
+        {
+            db.AddRange(institution, board, group);
+            await db.SaveChangesAsync();
+            var tracked = await db.StudentProfiles.Include(p => p.AcademicHistory).SingleAsync(p => p.Id == profile.Id);
+            var entry = StudentAcademicHistory.Create(tracked.Id);
+            entry.Category = AcademicHistoryCategory.Master;
+            entry.UniversityId = institution.Id;
+            entry.University = institution.Name;
+            entry.BoardId = board.Id;
+            entry.GroupId = group.Id;
+            tracked.AcademicHistory.Add(entry);
+            await db.SaveChangesAsync();
+        }
+
+        await using var ddl = await Db.OpenAsync(Db.DdlConnectionString);
+        foreach (var (table, id) in new[] { ("EducationalInstitutions", institution.Id), ("EducationBoards", board.Id), ("EducationGroups", group.Id) })
+        {
+            var error = await Assert.ThrowsAsync<PostgresException>(() => PostgresTestDatabase.ExecuteAsync(ddl, $"DELETE FROM \"{table}\" WHERE \"Id\" = '{id}'"));
+            Assert.Contains(error.SqlState, new[] { "23001", "23503" });
+        }
+    }
+
+    [PostgresFact]
     public async Task The_runtime_role_can_write_and_read_every_student_table_with_audit_columns_filled()
     {
         var seed = await SeedAsync();

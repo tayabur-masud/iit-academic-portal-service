@@ -18,6 +18,15 @@ namespace IitAcademicPortal.Api.Controllers;
 [EnableRateLimiting(RateLimitPolicies.Authentication)]
 public sealed class AccountCredentialSetupController(AccountCredentialSetupService setup) : ControllerBase
 {
+    /// <summary>
+    /// Checks a setup link before the page shows the password form. Always 200 with <c>usable</c>; an unusable link (used, expired,
+    /// reissued, tampered, or for an unknown or active account) is just <c>false</c>, so the answer never reveals account details.
+    /// </summary>
+    [HttpPost("account-credential-setup-checks")]
+    [ProducesResponseType<AccountCredentialSetupCheckResponse>(StatusCodes.Status200OK)]
+    public async Task<ActionResult<AccountCredentialSetupCheckResponse>> Check(AccountCredentialSetupCheckRequest request) =>
+        Ok(new AccountCredentialSetupCheckResponse(await setup.IsUsableAsync(request.UserId, request.Proof)));
+
     [HttpPost("account-credential-setups")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     public async Task<IActionResult> Complete(AccountCredentialSetupRequest request, CancellationToken cancellationToken)
@@ -40,7 +49,7 @@ public sealed class AccountCredentialSetupController(AccountCredentialSetupServi
                 return Problem(
                     statusCode: StatusCodes.Status400BadRequest,
                     title: "Setup link not valid",
-                    detail: "This setup link is invalid, has expired, or was already used. Ask an Admin to send a new setup email.");
+                    detail: "This setup link has already been used or is no longer valid. If you have already set your password, sign in with it. Otherwise ask an Admin to send a new setup email.");
         }
     }
 }

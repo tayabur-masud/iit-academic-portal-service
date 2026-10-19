@@ -62,6 +62,20 @@ public sealed class AccountCredentialSetupService(
         userManager.GenerateUserTokenAsync(user, TokenProvider, Purpose);
 
     /// <summary>
+    /// Whether a setup link can still be used, so the setup page can show the password form only for a usable link. It applies exactly
+    /// the checks completion applies (the account exists and is pending, and the proof matches the dedicated purpose and the current
+    /// security stamp) and changes nothing. Every unusable link (used, expired, reissued, tampered, or for an unknown or already active
+    /// account) gives the same false, so the answer never says whether an account exists or is active.
+    /// </summary>
+    public async Task<bool> IsUsableAsync(string? userId, string? proof)
+    {
+        var user = string.IsNullOrWhiteSpace(userId) || string.IsNullOrEmpty(proof) ? null : await userManager.FindByIdAsync(userId);
+        return user is not null
+            && user.AccountStatus == TeacherAccountStatus.PendingCredentialSetup
+            && await userManager.VerifyUserTokenAsync(user, TokenProvider, Purpose, proof!);
+    }
+
+    /// <summary>
     /// Public completion. Validates the password policy first (so the response cannot depend on whether the account exists), then
     /// the setup proof against the dedicated purpose, the pending status, and the current security stamp. On success the password is
     /// added, the account becomes Active, the stamp rotates (consuming this and any other outstanding link), and a safe audit event

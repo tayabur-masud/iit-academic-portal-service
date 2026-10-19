@@ -79,12 +79,15 @@ public sealed class HallResource()
         return Task.CompletedTask;
     }
 
+    protected override Task<bool> HasDependentsAsync(Hall entity, ConfigurationContext context, CancellationToken cancellationToken) =>
+        context.Store.UsedByStudentsAsync<Hall>(entity.Id, cancellationToken);
+
     protected override void Describe(Hall entity, Dictionary<string, object?> values) => values["address"] = entity.Address;
 
     protected override ConfigurationItem Project(Hall entity, ConfigurationItem item) => item with { Address = entity.Address };
 }
 
-/// <summary>A degree with its required credit threshold for future graduation-eligibility checks.</summary>
+/// <summary>A degree with its required credit threshold, which Student Management uses for graduation eligibility.</summary>
 public sealed class DegreeResource(DependentsCheck<Degree>? dependents = null)
     : CodedResource<Degree>("degrees", "Degree", "degree", () => new Degree(), ConfigurationFields.Credits, dependents)
 {
@@ -148,6 +151,9 @@ public sealed class BatchResource()
             input.AcademicSessionId, entity.AcademicSessionId, isNew, "academicSessionId", "academic session", context, errors, cancellationToken);
     }
 
+    protected override Task<bool> HasDependentsAsync(Batch entity, ConfigurationContext context, CancellationToken cancellationToken) =>
+        context.Store.UsedByStudentsAsync<Batch>(entity.Id, cancellationToken);
+
     protected override void Describe(Batch entity, Dictionary<string, object?> values)
     {
         values["degreeId"] = entity.DegreeId;
@@ -208,6 +214,9 @@ public sealed class UpazilaResource()
         Upazila entity, ConfigurationInput input, ConfigurationContext context, ConfigurationErrors errors, bool isNew, CancellationToken cancellationToken) =>
         entity.DistrictId = await ValidateReferenceAsync<District>(
             input.DistrictId, entity.DistrictId, isNew, "districtId", "district", context, errors, cancellationToken);
+
+    protected override Task<bool> HasDependentsAsync(Upazila entity, ConfigurationContext context, CancellationToken cancellationToken) =>
+        context.Store.UsedByStudentsAsync<Upazila>(entity.Id, cancellationToken);
 
     protected override void Describe(Upazila entity, Dictionary<string, object?> values) => values["districtId"] = entity.DistrictId;
 

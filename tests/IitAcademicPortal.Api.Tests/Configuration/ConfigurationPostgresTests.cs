@@ -120,7 +120,7 @@ public sealed class ConfigurationPostgresTests(PostgresDatabaseFixture fixture) 
 
     private static T CodedNamed<T>(string name, string? code, T record) where T : ConfigurationRecord, ICodedRecord
     {
-        record.Rename(name);
+        Named(name, record);
         record.SetCode(code);
         return record;
     }

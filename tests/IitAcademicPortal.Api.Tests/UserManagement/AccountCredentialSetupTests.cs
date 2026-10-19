@@ -289,6 +289,79 @@ public sealed partial class AccountCredentialSetupTests : UserManagementTestBase
         Assert.Equal(TeacherAccountStatus.PendingCredentialSetup, (await UserAsync(account.UserId)).AccountStatus);
     }
 
+    private static Task<(HttpStatusCode Status, System.Text.Json.JsonElement Body)> Check(Infrastructure.PortalClient client, string userId, string proof) =>
+        SendAsync(client, HttpMethod.Post, "/api/auth/account-credential-setup-checks", new { userId, proof });
+
+    [Fact]
+    public async Task The_link_check_says_a_fresh_link_is_usable_and_a_used_link_is_not_without_changing_anything()
+    {
+        using var admin = await AdminAsync();
+        var account = await CreateAccountAsync(admin, PortalRoles.Student);
+        var link = await LatestSetupLinkAsync(account.Email);
+        using var holder = Host.CreatePortalClient();
+        var stamp = (await UserAsync(account.UserId)).SecurityStamp;
+
+        var (freshStatus, fresh) = await Check(holder, link.UserId, link.Proof);
+        var (again, _) = await Check(holder, link.UserId, link.Proof);
+
+        Assert.Equal(HttpStatusCode.OK, freshStatus);
+        Assert.True(fresh.GetProperty("usable").GetBoolean());
+        Assert.Equal(HttpStatusCode.OK, again);
+        Assert.Equal(stamp, (await UserAsync(account.UserId)).SecurityStamp);
+        Assert.Equal(TeacherAccountStatus.PendingCredentialSetup, (await UserAsync(account.UserId)).AccountStatus);
+
+        Assert.Equal(HttpStatusCode.NoContent, (await CompleteAsync(holder, link.UserId, link.Proof)).Status);
+        var (_, used) = await Check(holder, link.UserId, link.Proof);
+        Assert.False(used.GetProperty("usable").GetBoolean());
+    }
+
+    [Fact]
+    public async Task Every_unusable_link_gets_the_same_answer_with_nothing_about_the_account()
+    {
+        using var admin = await AdminAsync();
+        var pending = await CreateAccountAsync(admin, PortalRoles.Student);
+        var activeEmail = PortalApiFactory.UniqueEmail("active");
+        var activeId = await Host.CreateUserAsync(activeEmail, PortalRoles.Student);
+        var link = await LatestSetupLinkAsync(pending.Email);
+        string resetProof;
+        await using (var scope = Host.Services.CreateAsyncScope())
+        {
+            var users = scope.ServiceProvider.GetRequiredService<UserManager<PortalUser>>();
+            resetProof = await users.GeneratePasswordResetTokenAsync((await users.FindByIdAsync(pending.UserId))!);
+        }
+
+        using var holder = Host.CreatePortalClient();
+        var bodies = new List<string>();
+        foreach (var (userId, proof) in new[]
+        {
+            (pending.UserId, link.Proof + "x"), (pending.UserId, resetProof), (activeId, link.Proof), ("no-such-account", link.Proof),
+        })
+        {
+            var (status, body) = await Check(holder, userId, proof);
+            Assert.Equal(HttpStatusCode.OK, status);
+            bodies.Add(body.GetRawText());
+        }
+
+        Assert.Equal("{\"usable\":false}", Assert.Single(bodies.Distinct()));
+        Assert.Empty(await EventsAsync("auth.credential-setup.rejected"));
+        NotificationTestHost.AssertNoSecret([Host.Logs.Everything], link.Proof, resetProof);
+    }
+
+    [Fact]
+    public async Task A_reissue_makes_the_earlier_link_unusable_in_the_check()
+    {
+        using var admin = await AdminAsync();
+        var account = await CreateAccountAsync(admin, PortalRoles.Student);
+        var first = await LatestSetupLinkAsync(account.Email);
+
+        Assert.Equal(HttpStatusCode.OK, (await Reissue(admin, account.UserId)).Status);
+        var second = await LatestSetupLinkAsync(account.Email);
+
+        using var holder = Host.CreatePortalClient();
+        Assert.False((await Check(holder, first.UserId, first.Proof)).Body.GetProperty("usable").GetBoolean());
+        Assert.True((await Check(holder, second.UserId, second.Proof)).Body.GetProperty("usable").GetBoolean());
+    }
+
     [GeneratedRegex("\"traceId\":\"[^\"]*\"")]
     private static partial Regex TraceId();
 }

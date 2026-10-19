@@ -366,6 +366,8 @@ accounts are `PortalUser` with Identity roles, `AccountStatus`, and `DefaultRole
   `PortalAccountCredentialSetup` provider and purpose (lifespan `AccountCredentialSetup:ProofLifespan`, 3 days by default) and builds
   `{AccountCredentialSetup:SetupPageUrl}?userId=...&proof=...` (default page: `{Notifications:PortalUrl}/account-setup`). Nothing about the
   proof is stored or logged.
+- **Link check.** `POST /api/auth/account-credential-setup-checks` (public, anti-forgery, rate-limited) takes `userId` and `proof` and answers
+  only `usable`; the setup page uses it so a used or replaced link goes straight to a sign-in message instead of a password form.
 - **Completion.** `POST /api/auth/account-credential-setups` (public, anti-forgery, rate-limited) takes `userId`, `proof`, `newPassword`. In one
   transaction it adds the password, makes the account Active, rotates the security stamp (so the link cannot be replayed), and stages
   `account.credential-setup.completed`. Every invalid, expired, used, or stale link gets the same generic 400 and an

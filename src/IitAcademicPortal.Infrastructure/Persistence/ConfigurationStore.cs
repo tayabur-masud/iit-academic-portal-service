@@ -100,6 +100,17 @@ public sealed class ConfigurationStore(PortalDbContext db) : IConfigurationStore
     public Task<bool> DesignationInUseByTeacherAsync(Guid designationId, CancellationToken cancellationToken) =>
         db.TeacherProfiles.AnyAsync(t => t.DesignationId == designationId, cancellationToken);
 
+    public Task<bool> UsedByStudentsAsync<T>(Guid id, CancellationToken cancellationToken) where T : ConfigurationRecord =>
+        typeof(T) == typeof(Degree) ? db.StudentAdmissions.AnyAsync(a => a.DegreeId == id, cancellationToken)
+        : typeof(T) == typeof(Batch) ? db.StudentAdmissions.AnyAsync(a => a.BatchId == id, cancellationToken)
+        : typeof(T) == typeof(Hall) ? db.StudentAdmissions.AnyAsync(a => a.AssignedHallId == id, cancellationToken)
+        : typeof(T) == typeof(Upazila) ? db.StudentProfiles.AnyAsync(p => p.MailingUpazilaId == id || p.PermanentUpazilaId == id, cancellationToken)
+        : typeof(T) == typeof(EducationalInstitution)
+            ? db.StudentAcademicHistoryEntries.AnyAsync(h => h.SchoolOrCollegeId == id || h.UniversityId == id || h.InstitutionId == id, cancellationToken)
+        : typeof(T) == typeof(EducationBoard) ? db.StudentAcademicHistoryEntries.AnyAsync(h => h.BoardId == id, cancellationToken)
+        : typeof(T) == typeof(EducationGroup) ? db.StudentAcademicHistoryEntries.AnyAsync(h => h.GroupId == id, cancellationToken)
+        : Task.FromResult(false);
+
     public async Task SaveAsync(CancellationToken cancellationToken)
     {
         try

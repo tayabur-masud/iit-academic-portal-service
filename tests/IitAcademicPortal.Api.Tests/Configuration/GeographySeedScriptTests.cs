@@ -18,7 +18,9 @@ public sealed class GeographySeedScriptTests(PostgresDatabaseFixture fixture) : 
     private async Task ResetAsync()
     {
         await using var connection = await Db.OpenAsync(Db.DdlConnectionString);
-        await PostgresTestDatabase.ExecuteAsync(connection, "TRUNCATE TABLE \"Upazilas\", \"Districts\", \"Divisions\"");
+        // CASCADE: student addresses may refer to upazilas, and PostgreSQL refuses to truncate a referenced table even when the
+        // referencing table is empty (it is in this test's own database).
+        await PostgresTestDatabase.ExecuteAsync(connection, "TRUNCATE TABLE \"Upazilas\", \"Districts\", \"Divisions\" CASCADE");
     }
 
     private async Task RunAsync(string script)

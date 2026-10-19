@@ -3,6 +3,7 @@ using IitAcademicPortal.Domain.Auditing;
 using IitAcademicPortal.Domain.Configuration;
 using IitAcademicPortal.Domain.Identity;
 using IitAcademicPortal.Domain.Sessions;
+using IitAcademicPortal.Domain.Students;
 using IitAcademicPortal.Domain.Teachers;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
@@ -55,6 +56,12 @@ public partial class PortalDbContext(DbContextOptions<PortalDbContext> options) 
     public DbSet<Upazila> Upazilas => Set<Upazila>();
 
     public DbSet<TeacherProfile> TeacherProfiles => Set<TeacherProfile>();
+
+    public DbSet<StudentProfile> StudentProfiles => Set<StudentProfile>();
+
+    public DbSet<StudentAdmissionRecord> StudentAdmissions => Set<StudentAdmissionRecord>();
+
+    public DbSet<StudentAcademicHistory> StudentAcademicHistoryEntries => Set<StudentAcademicHistory>();
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
@@ -148,6 +155,7 @@ public partial class PortalDbContext(DbContextOptions<PortalDbContext> options) 
 
         ConfigureConfiguration(builder);
         ConfigureTeachers(builder);
+        ConfigureStudents(builder);
         ConfigureNotifications(builder);
         ConfigureAuditedEntities(builder);
     }
@@ -173,6 +181,95 @@ public partial class PortalDbContext(DbContextOptions<PortalDbContext> options) 
             profile.HasOne<PortalUser>().WithMany().HasForeignKey(p => p.UserId).OnDelete(DeleteBehavior.Restrict);
             profile.HasOne<Designation>().WithMany().HasForeignKey(p => p.DesignationId).OnDelete(DeleteBehavior.Restrict);
         });
+
+    /// <summary>
+    /// Student Management: one profile per account (unique, restrictive), many admissions per profile with at most one per Degree and
+    /// Batch, a registration number unique across all admissions once normalized, and restrictive links to the Configuration records
+    /// they use. Academic history rows belong to their profile; their institution, board, and group may reference a catalog record and
+    /// always keep a name snapshot, and every other value is text.
+    /// </summary>
+    private static void ConfigureStudents(ModelBuilder builder)
+    {
+        builder.Entity<StudentProfile>(profile =>
+        {
+            profile.ToTable("StudentProfiles");
+            profile.HasKey(p => p.Id);
+            profile.Property(p => p.Id).ValueGeneratedNever();
+            profile.Property(p => p.UserId).HasMaxLength(AuditedEntity.MaxUserIdLength).IsRequired();
+            profile.Property(p => p.ApplicantName).HasMaxLength(StudentProfile.MaxTextLength).IsRequired();
+            profile.Property(p => p.FatherName).HasMaxLength(StudentProfile.MaxTextLength);
+            profile.Property(p => p.MotherName).HasMaxLength(StudentProfile.MaxTextLength);
+            profile.Property(p => p.PlaceOfBirth).HasMaxLength(StudentProfile.MaxTextLength);
+            profile.Property(p => p.MaritalStatus).HasMaxLength(StudentProfile.MaxTextLength);
+            profile.Property(p => p.Nationality).HasMaxLength(StudentProfile.MaxTextLength);
+            profile.Property(p => p.ApplicantMobile).HasMaxLength(StudentProfile.MaxPhoneLength).IsRequired();
+            profile.Property(p => p.MailingAddressDetails).HasMaxLength(StudentProfile.MaxAddressLength);
+            profile.Property(p => p.MailingCellNumber).HasMaxLength(StudentProfile.MaxPhoneLength);
+            profile.Property(p => p.PermanentAddressDetails).HasMaxLength(StudentProfile.MaxAddressLength);
+            profile.Property(p => p.PermanentCellNumber).HasMaxLength(StudentProfile.MaxPhoneLength);
+            profile.Property(p => p.GuardianName).HasMaxLength(StudentProfile.MaxTextLength);
+            profile.Property(p => p.GuardianRelationship).HasMaxLength(StudentProfile.MaxTextLength);
+            profile.Property(p => p.GuardianAddress).HasMaxLength(StudentProfile.MaxAddressLength);
+            profile.Property(p => p.GuardianCellNumber).HasMaxLength(StudentProfile.MaxPhoneLength);
+            profile.HasIndex(p => p.UserId).IsUnique();
+            profile.HasIndex(p => p.MailingUpazilaId);
+            profile.HasIndex(p => p.PermanentUpazilaId);
+            profile.HasOne<PortalUser>().WithMany().HasForeignKey(p => p.UserId).OnDelete(DeleteBehavior.Restrict);
+            profile.HasOne<Upazila>().WithMany().HasForeignKey(p => p.MailingUpazilaId).OnDelete(DeleteBehavior.Restrict);
+            profile.HasOne<Upazila>().WithMany().HasForeignKey(p => p.PermanentUpazilaId).OnDelete(DeleteBehavior.Restrict);
+            profile.HasMany(p => p.AcademicHistory).WithOne().HasForeignKey(h => h.StudentProfileId).OnDelete(DeleteBehavior.Cascade);
+            profile.Navigation(p => p.AcademicHistory).UsePropertyAccessMode(PropertyAccessMode.Property);
+        });
+
+        builder.Entity<StudentAcademicHistory>(history =>
+        {
+            history.ToTable("StudentAcademicHistory");
+            history.HasKey(h => h.Id);
+            history.Property(h => h.Id).ValueGeneratedNever();
+            history.Property(h => h.Category).HasConversion<string>().HasMaxLength(32).IsRequired();
+            foreach (var name in new[]
+            {
+                nameof(StudentAcademicHistory.Examination), nameof(StudentAcademicHistory.SchoolOrCollege), nameof(StudentAcademicHistory.Board),
+                nameof(StudentAcademicHistory.Group), nameof(StudentAcademicHistory.Department), nameof(StudentAcademicHistory.University),
+                nameof(StudentAcademicHistory.Subject), nameof(StudentAcademicHistory.Institution), nameof(StudentAcademicHistory.Year),
+                nameof(StudentAcademicHistory.MarksObtained), nameof(StudentAcademicHistory.MarksPercentage), nameof(StudentAcademicHistory.Cgpa),
+                nameof(StudentAcademicHistory.Class), nameof(StudentAcademicHistory.Division),
+            })
+            {
+                history.Property<string?>(name).HasMaxLength(StudentAcademicHistory.MaxValueLength);
+            }
+
+            history.HasIndex(h => new { h.StudentProfileId, h.SortOrder });
+
+            // Optional catalog choices, restrictive so a record that history refers to cannot be removed.
+            history.HasOne<EducationalInstitution>().WithMany().HasForeignKey(h => h.SchoolOrCollegeId).OnDelete(DeleteBehavior.Restrict);
+            history.HasOne<EducationalInstitution>().WithMany().HasForeignKey(h => h.UniversityId).OnDelete(DeleteBehavior.Restrict);
+            history.HasOne<EducationalInstitution>().WithMany().HasForeignKey(h => h.InstitutionId).OnDelete(DeleteBehavior.Restrict);
+            history.HasOne<EducationBoard>().WithMany().HasForeignKey(h => h.BoardId).OnDelete(DeleteBehavior.Restrict);
+            history.HasOne<EducationGroup>().WithMany().HasForeignKey(h => h.GroupId).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        builder.Entity<StudentAdmissionRecord>(admission =>
+        {
+            admission.ToTable("StudentAdmissions");
+            admission.HasKey(a => a.Id);
+            admission.Property(a => a.Id).ValueGeneratedNever();
+            admission.Property(a => a.AdmissionSerialNumber).HasMaxLength(StudentAdmissionRecord.MaxIdentifierLength).IsRequired();
+            admission.Property(a => a.AdmissionExamRoll).HasMaxLength(StudentAdmissionRecord.MaxIdentifierLength).IsRequired();
+            admission.Property(a => a.ClassRoll).HasMaxLength(StudentAdmissionRecord.MaxIdentifierLength);
+            admission.Property(a => a.RegistrationNumber).HasMaxLength(StudentAdmissionRecord.MaxIdentifierLength);
+            admission.Property(a => a.NormalizedRegistrationNumber).HasMaxLength(StudentAdmissionRecord.MaxIdentifierLength);
+            admission.HasIndex(a => new { a.StudentProfileId, a.DegreeId, a.BatchId }).IsUnique();
+            admission.HasIndex(a => a.NormalizedRegistrationNumber).IsUnique().HasFilter("\"NormalizedRegistrationNumber\" IS NOT NULL");
+            admission.HasIndex(a => a.DegreeId);
+            admission.HasIndex(a => a.BatchId);
+            admission.HasIndex(a => a.AssignedHallId);
+            admission.HasOne<StudentProfile>().WithMany().HasForeignKey(a => a.StudentProfileId).OnDelete(DeleteBehavior.Restrict);
+            admission.HasOne<Degree>().WithMany().HasForeignKey(a => a.DegreeId).OnDelete(DeleteBehavior.Restrict);
+            admission.HasOne<Batch>().WithMany().HasForeignKey(a => a.BatchId).OnDelete(DeleteBehavior.Restrict);
+            admission.HasOne<Hall>().WithMany().HasForeignKey(a => a.AssignedHallId).OnDelete(DeleteBehavior.Restrict);
+        });
+    }
 
     /// <summary>
     /// Maps created and last-modified (who and when) for every entity that derives from <see cref="AuditedEntity"/>, so a new

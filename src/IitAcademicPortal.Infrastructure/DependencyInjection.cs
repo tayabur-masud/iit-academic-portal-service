@@ -113,6 +113,7 @@ public static class DependencyInjection
         services.AddScoped<IConfigurationStore, ConfigurationStore>();
         services.AddScoped<ITeacherStore, TeacherStore>();
         services.AddScoped<IUserAccountStore, UserAccountStore>();
+        services.AddScoped<IStudentStore, StudentStore>();
         services.AddScoped<IAuditActorDirectory, AuditActorDirectory>();
         services.AddSingleton<ISecurityAuditOutboxStore, SecurityAuditOutboxStore>();
 

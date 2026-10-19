@@ -375,6 +375,30 @@ accounts are `PortalUser` with Identity roles, `AccountStatus`, and `DefaultRole
 - **Reissue.** `POST /api/admin/users/{userId}/credential-setup-reissues` works only for a pending account: it rotates the security stamp (old
   links stop working), audits `account.credential-setup.reissued`, and requests a new occurrence. It is not the generic failed-notification resend.
 
+## Student management (Admin)
+
+Admins enter admissions from the paper form under `/api/admin/students` (contract: `specs/007-student-management/contracts/`). A person has
+one `StudentProfile` linked to one Student account (the account keeps the email); each program enrollment is a `StudentAdmissionRecord`
+(one per Degree and Batch); prior education is `StudentAcademicHistory` on the profile, with every value kept as text.
+
+- **First admission** for an email creates a pending, passwordless Student account, the profile, and the admission in one transaction with
+  their audit events, then requests the common `AccountCredentialSetup` email. A **returning Student's** email reuses the account and
+  profile and never requests setup again; an email of any other kind of account is a 409. `GET /api/admin/students/lookup?email=` tells
+  the form which case applies and returns the profile to prefill.
+- **Hall and registration number** are optional at admission and updated independently; a newly chosen Hall must be active; the
+  registration number is unique across all admissions (case- and space-insensitive).
+- **Addresses** store free-text details and an Upazila; District and Division are always derived from it.
+- **Academic history** chooses the school or college, university, institution, board, and group from the Configuration catalogs (institutions
+  filtered by type), storing the reference plus a name snapshot that later renames never rewrite; a value not in a catalog is typed and kept
+  as text. Other history values are text as written on the form.
+- **Graduation eligibility** (`GET /api/admin/students/{admissionId}/graduation-eligibility`) compares the Degree's
+  `CreditsToBeCompleted` with the passed-course credits of that admission from `ICompletedCreditsProvider`, and needs the Hall and
+  registration number. Nothing is stored and results are never blocked. **For the academic-results feature:** register an
+  `ICompletedCreditsProvider` keyed by admission ID; until then `UnavailableCompletedCreditsProvider` reports the credits as unavailable,
+  so no admission is eligible.
+- Deleting a Degree, Batch, Hall, Upazila, educational institution, education board, or education group that a student uses is refused
+  (deactivate it instead).
+
 ## Configuration (Admin reference data)
 
 Admins maintain the reference data other features depend on under `/api/admin/configuration`. Every route needs

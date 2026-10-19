@@ -27,7 +27,9 @@ public sealed class HallSeedScriptTests(PostgresDatabaseFixture fixture) : IClas
     private async Task ResetAsync()
     {
         await using var connection = await Db.OpenAsync(Db.DdlConnectionString);
-        await PostgresTestDatabase.ExecuteAsync(connection, "TRUNCATE TABLE \"Halls\"");
+        // CASCADE: student admissions may refer to halls, and PostgreSQL refuses to truncate a referenced table even when the
+        // referencing table is empty (it is in this test's own database).
+        await PostgresTestDatabase.ExecuteAsync(connection, "TRUNCATE TABLE \"Halls\" CASCADE");
     }
 
     private async Task RunScriptAsync()

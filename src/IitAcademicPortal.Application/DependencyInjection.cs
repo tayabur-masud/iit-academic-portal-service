@@ -4,6 +4,7 @@ using IitAcademicPortal.Application.Authentication;
 using IitAcademicPortal.Application.Configuration;
 using IitAcademicPortal.Application.Notifications;
 using IitAcademicPortal.Application.PasswordRecovery;
+using IitAcademicPortal.Application.Students;
 using IitAcademicPortal.Application.Teachers;
 using IitAcademicPortal.Application.UserManagement;
 using IitAcademicPortal.Domain.Notifications;
@@ -43,6 +44,11 @@ public static class DependencyInjection
         services.AddScoped<UserProvisioningService>();
         services.AddScoped<UserAccessService>();
         services.AddScoped<AccountCredentialSetupService>();
+        services.AddScoped<StudentAdmissionService>();
+        services.AddScoped<GraduationEligibilityService>();
+
+        // Passed-course credits belong to the academic-results owner. Until it registers its adapter, eligibility reports them unavailable.
+        services.TryAddScoped<ICompletedCreditsProvider, UnavailableCompletedCreditsProvider>();
         services.AddSingleton<NotificationTemplateRenderer>();
         services.AddSingleton<NotificationMetrics>();
         services.AddSingleton<INotificationFailureSignal, LoggingNotificationFailureSignal>();

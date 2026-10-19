@@ -13,10 +13,13 @@ public sealed class ConfigurationResources
         IConfigurationResource[] all =
         [
             new InstitutionResource(),
-            new CodedResource<EducationBoard>("education-boards", "Education board", "education-board", () => new EducationBoard()),
-            new NameOnlyResource<EducationGroup>("education-groups", "Education group", "education-group", () => new EducationGroup()),
+            new CodedResource<EducationBoard>("education-boards", "Education board", "education-board", () => new EducationBoard(),
+                dependents: (board, c, ct) => c.Store.UsedByStudentsAsync<EducationBoard>(board.Id, ct)),
+            new NameOnlyResource<EducationGroup>("education-groups", "Education group", "education-group", () => new EducationGroup(),
+                (group, c, ct) => c.Store.UsedByStudentsAsync<EducationGroup>(group.Id, ct)),
             new NameOnlyResource<ExaminationType>("examination-types", "Examination type", "examination-type", () => new ExaminationType()),
-            new DegreeResource((degree, c, ct) => c.Store.ExistsAsync<Batch>(b => b.DegreeId == degree.Id, ct)),
+            new DegreeResource(async (degree, c, ct) =>
+                await c.Store.ExistsAsync<Batch>(b => b.DegreeId == degree.Id, ct) || await c.Store.UsedByStudentsAsync<Degree>(degree.Id, ct)),
             new NameOnlyResource<Semester>("semesters", "Semester", "semester", () => new Semester(),
                 (semester, c, ct) => c.Store.ExistsAsync<Batch>(b => b.StartingSemesterId == semester.Id, ct)),
             new NameOnlyResource<AcademicSession>("academic-sessions", "Academic session", "academic-session", () => new AcademicSession(),

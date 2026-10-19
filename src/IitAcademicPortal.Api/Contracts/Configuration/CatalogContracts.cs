@@ -19,6 +19,14 @@ public sealed class ConfigurationRequest
 
     public decimal? CreditsToBeCompleted { get; init; }
 
+    public decimal? CreditHours { get; init; }
+
+    public decimal? TheoryCreditHours { get; init; }
+
+    public decimal? LabCreditHours { get; init; }
+
+    public Guid? PrerequisiteCourseId { get; init; }
+
     public bool? IsActive { get; init; }
 
     public Guid? DegreeId { get; init; }
@@ -38,6 +46,10 @@ public sealed class ConfigurationRequest
         Type = Type,
         Address = Address,
         CreditsToBeCompleted = CreditsToBeCompleted,
+        CreditHours = CreditHours,
+        TheoryCreditHours = TheoryCreditHours,
+        LabCreditHours = LabCreditHours,
+        PrerequisiteCourseId = PrerequisiteCourseId,
         IsActive = IsActive,
         DegreeId = DegreeId,
         StartingSemesterId = StartingSemesterId,
@@ -56,6 +68,10 @@ public sealed record ConfigurationItemResponse(
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Type,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Address,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] decimal? CreditsToBeCompleted,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] decimal? CreditHours,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] decimal? TheoryCreditHours,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] decimal? LabCreditHours,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] Guid? PrerequisiteCourseId,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] Guid? DegreeId,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] Guid? StartingSemesterId,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] Guid? AcademicSessionId,
@@ -70,7 +86,7 @@ public sealed record ConfigurationItemResponse(
 {
     public static ConfigurationItemResponse From(ConfigurationItem item) => new(
         item.Id, item.Name, item.IsActive, item.Code, item.Type, item.Address, item.CreditsToBeCompleted,
-        item.DegreeId, item.StartingSemesterId, item.AcademicSessionId, item.DivisionId, item.DistrictId,
+        item.CreditHours, item.TheoryCreditHours, item.LabCreditHours, item.PrerequisiteCourseId, item.DegreeId, item.StartingSemesterId, item.AcademicSessionId, item.DivisionId, item.DistrictId,
         item.CreatedAtUtc, item.CreatedByUserId, item.CreatedBy, item.LastModifiedAtUtc, item.LastModifiedByUserId, item.LastModifiedBy);
 }
 
@@ -85,7 +101,10 @@ public sealed record ConfigurationPageResponse(
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] long? TotalCount = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? TotalPages = null);
 
-/// <summary>List filters. <c>divisionId</c> and <c>districtId</c> limit a geography list to one parent.</summary>
+/// <summary>
+/// List filters. <c>divisionId</c> and <c>districtId</c> limit a geography list to one parent; <c>degreeId</c> limits a course list to
+/// one Degree (used for prerequisite choices); <c>type</c> limits a course or institution list to one type.
+/// </summary>
 public sealed class ConfigurationQueryString
 {
     public string? Search { get; init; }
@@ -103,5 +122,10 @@ public sealed class ConfigurationQueryString
 
     public Guid? DistrictId { get; init; }
 
-    public ConfigurationQuery ToQuery() => new(Search, Status, DivisionId ?? DistrictId, PageSize, Cursor, Page);
+    public Guid? DegreeId { get; init; }
+
+    /// <summary>Limits a list of a typed catalog (courses, educational institutions) to one type.</summary>
+    public string? Type { get; init; }
+
+    public ConfigurationQuery ToQuery() => new(Search, Status, DivisionId ?? DistrictId ?? DegreeId, PageSize, Cursor, Page, Type);
 }

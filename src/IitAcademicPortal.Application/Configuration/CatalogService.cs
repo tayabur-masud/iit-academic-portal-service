@@ -19,7 +19,9 @@ public sealed class ConfigurationResources
                 (group, c, ct) => c.Store.UsedByStudentsAsync<EducationGroup>(group.Id, ct)),
             new NameOnlyResource<ExaminationType>("examination-types", "Examination type", "examination-type", () => new ExaminationType()),
             new DegreeResource(async (degree, c, ct) =>
-                await c.Store.ExistsAsync<Batch>(b => b.DegreeId == degree.Id, ct) || await c.Store.UsedByStudentsAsync<Degree>(degree.Id, ct)),
+                await c.Store.ExistsAsync<Batch>(b => b.DegreeId == degree.Id, ct)
+                || await c.Store.ExistsAsync<Course>(course => course.DegreeId == degree.Id, ct)
+                || await c.Store.UsedByStudentsAsync<Degree>(degree.Id, ct)),
             new NameOnlyResource<Semester>("semesters", "Semester", "semester", () => new Semester(),
                 (semester, c, ct) => c.Store.ExistsAsync<Batch>(b => b.StartingSemesterId == semester.Id, ct)),
             new NameOnlyResource<AcademicSession>("academic-sessions", "Academic session", "academic-session", () => new AcademicSession(),
@@ -28,6 +30,7 @@ public sealed class ConfigurationResources
                 dependents: (designation, c, ct) => c.Store.DesignationInUseByTeacherAsync(designation.Id, ct)),
             new HallResource(),
             new BatchResource(),
+            new CourseResource(),
             new NameOnlyResource<Division>("divisions", "Division", "division", () => new Division(),
                 (division, c, ct) => c.Store.ExistsAsync<District>(d => d.DivisionId == division.Id, ct)),
             new DistrictResource(),

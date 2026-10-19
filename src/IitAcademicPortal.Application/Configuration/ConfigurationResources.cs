@@ -38,6 +38,17 @@ public sealed class InstitutionResource()
         "institutions", "Educational institution", "institution", () => new EducationalInstitution(),
         ConfigurationFields.Type | ConfigurationFields.Address)
 {
+    protected override Expression<Func<EducationalInstitution, bool>>? TypeFilter(string type, ConfigurationErrors errors)
+    {
+        if (TryParseType<EducationalInstitutionType>(type, out var value))
+        {
+            return institution => institution.Type == value;
+        }
+
+        errors.Add("type", "The type must be School, College, or University.");
+        return null;
+    }
+
     protected override Task ApplyAsync(
         EducationalInstitution entity, ConfigurationInput input, ConfigurationContext context, ConfigurationErrors errors, bool isNew, CancellationToken cancellationToken)
     {
@@ -166,6 +177,206 @@ public sealed class BatchResource()
 
     protected override ConfigurationItem Project(Batch entity, ConfigurationItem item) =>
         item with { DegreeId = entity.DegreeId, StartingSemesterId = entity.StartingSemesterId, AcademicSessionId = entity.AcademicSessionId };
+}
+
+/// <summary>
+/// A course of one Degree. Code, credit total, type, and Degree are required; the name need not be unique, the code must be unique
+/// across all live courses. Theory and lab credit hours are each optional, each between zero and the total, and sum to the total
+/// when both are given. The optional prerequisite is a different active course of the same Degree and may not form a cycle. A
+/// Degree change may not leave this course's prerequisite, or an active course that depends on it, in another Degree, and a course
+/// that an active course depends on cannot be deactivated. Courses are deactivated, never deleted. Nothing outside the catalog changes.
+/// </summary>
+public sealed class CourseResource()
+    : ConfigurationResource<Course>(
+        "courses", "Course", "course",
+        ConfigurationFields.Code | ConfigurationFields.Type | ConfigurationFields.Degree | ConfigurationFields.CourseCredits | ConfigurationFields.Prerequisite)
+{
+    public const decimal MaximumCreditHours = 999_999.99m;
+
+    /// <summary>A guard against a corrupt chain looping forever; a real prerequisite chain is far shorter.</summary>
+    private const int MaximumChainLength = 1000;
+
+    public override bool SupportsDelete => false;
+
+    protected override bool NamesAreUnique => false;
+
+    // Courses are listed by code, which every course has and no two share.
+    protected override string SortProperty => nameof(Course.NormalizedCode);
+
+    protected override string SortKey(Course entity) => entity.NormalizedCode!;
+
+    protected override Course NewRecord() => new();
+
+    protected override Expression<Func<Course, bool>>? ParentFilter(Guid parentId) => course => course.DegreeId == parentId;
+
+    protected override Expression<Func<Course, bool>>? TypeFilter(string type, ConfigurationErrors errors)
+    {
+        if (TryParseType<CourseType>(type, out var value))
+        {
+            return course => course.Type == value;
+        }
+
+        errors.Add("type", "The type must be Mandatory or Elective.");
+        return null;
+    }
+
+    protected override Task<bool> CodeTakenAsync(ConfigurationContext context, Course entity, string normalizedCode, CancellationToken cancellationToken) =>
+        context.Store.CodeExistsAsync<Course>(normalizedCode, entity.Id, cancellationToken);
+
+    protected override async Task ApplyAsync(
+        Course entity, ConfigurationInput input, ConfigurationContext context, ConfigurationErrors errors, bool isNew, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(input.Code))
+        {
+            errors.Add("code", "Enter a course code.");
+        }
+
+        if (string.IsNullOrWhiteSpace(input.Type))
+        {
+            errors.Add("type", "Select a type: Mandatory or Elective.");
+        }
+        else if (Enum.TryParse<CourseType>(input.Type.Trim(), ignoreCase: true, out var type) && Enum.IsDefined(type)
+            && !int.TryParse(input.Type, out _))
+        {
+            entity.Type = type;
+        }
+        else
+        {
+            errors.Add("type", "The type must be Mandatory or Elective.");
+        }
+
+        ApplyCredits(entity, input, errors);
+
+        var previousDegree = entity.DegreeId;
+        entity.DegreeId = await ValidateReferenceAsync<Degree>(
+            input.DegreeId, entity.DegreeId, isNew, "degreeId", "degree", context, errors, cancellationToken);
+
+        // Courses that list this one as their prerequisite must stay in its Degree.
+        if (!isNew && !errors.Has("degreeId") && entity.DegreeId != previousDegree
+            && await context.Store.HasActiveDependentCoursesAsync(entity.Id, entity.DegreeId, cancellationToken))
+        {
+            errors.Add("degreeId", "Active courses in the current degree have this course as their prerequisite. Change their prerequisite first.");
+        }
+
+        var becomesActive = input.IsActive ?? (isNew || entity.IsActive);
+        await ApplyPrerequisiteAsync(entity, input.PrerequisiteCourseId, becomesActive, context, errors, cancellationToken);
+    }
+
+    private static void ApplyCredits(Course entity, ConfigurationInput input, ConfigurationErrors errors)
+    {
+        if (input.CreditHours is not { } total)
+        {
+            errors.Add("creditHours", "Enter the credit hours.");
+        }
+        else if (total <= 0 || total > MaximumCreditHours || Scale(total) > 2)
+        {
+            errors.Add("creditHours", "Enter positive credit hours with no more than two decimal places.");
+        }
+        else
+        {
+            entity.CreditHours = total;
+        }
+
+        var totalValid = !errors.Has("creditHours");
+        decimal? Part(decimal? value, string field, string label)
+        {
+            if (value is not { } part)
+            {
+                return null;
+            }
+
+            if (part < 0 || Scale(part) > 2)
+            {
+                errors.Add(field, $"Enter {label} credit hours of zero or more, with no more than two decimal places.");
+            }
+            else if (totalValid && part > input.CreditHours)
+            {
+                errors.Add(field, $"The {label} credit hours cannot be more than the total credit hours.");
+            }
+
+            return part;
+        }
+
+        entity.TheoryCreditHours = Part(input.TheoryCreditHours, "theoryCreditHours", "theory");
+        entity.LabCreditHours = Part(input.LabCreditHours, "labCreditHours", "lab");
+        if (totalValid && entity.TheoryCreditHours is { } theory && entity.LabCreditHours is { } lab
+            && !errors.Has("theoryCreditHours") && !errors.Has("labCreditHours") && theory + lab != input.CreditHours)
+        {
+            errors.Add("labCreditHours", "Theory and lab credit hours must add up to the total credit hours.");
+        }
+    }
+
+    private static async Task ApplyPrerequisiteAsync(
+        Course entity, Guid? requested, bool becomesActive, ConfigurationContext context, ConfigurationErrors errors, CancellationToken cancellationToken)
+    {
+        if (requested is not { } prerequisiteId || prerequisiteId == Guid.Empty)
+        {
+            entity.PrerequisiteCourseId = null;
+            return;
+        }
+
+        entity.PrerequisiteCourseId = prerequisiteId;
+        if (prerequisiteId == entity.Id)
+        {
+            errors.Add("prerequisiteCourseId", "A course cannot be its own prerequisite.");
+            return;
+        }
+
+        var prerequisite = await context.Store.FindAsync<Course>(prerequisiteId, cancellationToken);
+        if (prerequisite is null)
+        {
+            errors.Add("prerequisiteCourseId", "The selected prerequisite course does not exist.");
+            return;
+        }
+
+        if (becomesActive && !prerequisite.IsActive)
+        {
+            errors.Add("prerequisiteCourseId", "The selected prerequisite course is inactive. Choose an active course.");
+        }
+
+        if (!errors.Has("degreeId") && prerequisite.DegreeId != entity.DegreeId)
+        {
+            errors.Add("prerequisiteCourseId", "The prerequisite must be a course of the same degree.");
+        }
+
+        // Walk up the prerequisite's own chain, one link at a time; reaching this course again would close a cycle.
+        var seen = new HashSet<Guid>();
+        for (Guid? next = prerequisiteId; next is { } current && seen.Count < MaximumChainLength; next = await context.Store.PrerequisiteOfAsync(current, cancellationToken))
+        {
+            if (current == entity.Id || !seen.Add(current))
+            {
+                errors.Add("prerequisiteCourseId", "This prerequisite would create a cycle: it already depends on this course.");
+                return;
+            }
+        }
+    }
+
+    protected override async Task<string?> UpdateConflictAsync(Course entity, bool wasActive, ConfigurationContext context, CancellationToken cancellationToken) =>
+        wasActive && !entity.IsActive && await context.Store.HasActiveDependentCoursesAsync(entity.Id, null, cancellationToken)
+            ? "Active courses have this course as their prerequisite, so it cannot be deactivated. Change or deactivate those courses first."
+            : null;
+
+    protected override void Describe(Course entity, Dictionary<string, object?> values)
+    {
+        values["creditHours"] = entity.CreditHours;
+        values["theoryCreditHours"] = entity.TheoryCreditHours;
+        values["labCreditHours"] = entity.LabCreditHours;
+        values["type"] = entity.Type.ToString();
+        values["degreeId"] = entity.DegreeId;
+        values["prerequisiteCourseId"] = entity.PrerequisiteCourseId;
+    }
+
+    protected override ConfigurationItem Project(Course entity, ConfigurationItem item) => item with
+    {
+        CreditHours = entity.CreditHours,
+        TheoryCreditHours = entity.TheoryCreditHours,
+        LabCreditHours = entity.LabCreditHours,
+        Type = entity.Type.ToString(),
+        DegreeId = entity.DegreeId,
+        PrerequisiteCourseId = entity.PrerequisiteCourseId,
+    };
+
+    private static int Scale(decimal value) => (decimal.GetBits(value)[3] >> 16) & 0x7f;
 }
 
 /// <summary>A District of one active Division, unique by name within that Division.</summary>

@@ -188,6 +188,38 @@ public sealed class ConfigurationAuditTransactionTests : ConfigurationTestBase
     }
 
     [Fact]
+    public async Task Course_create_update_and_deactivation_record_their_fields_and_roll_back_when_the_audit_write_fails()
+    {
+        using var admin = await AdminAsync();
+        var degree = await CreateAsync(admin, "degrees", new { name = "Audited Degree", creditsToBeCompleted = 120m });
+        var course = await CreateAsync(admin, "courses", new { name = "Algorithms", code = "CSE-201", creditHours = 3m, theoryCreditHours = 2m, labCreditHours = 1m, type = "Mandatory", degreeId = degree });
+        Assert.Equal(HttpStatusCode.OK, (await Put(admin, "courses", course, new { name = "Algorithms", code = "CSE-201", creditHours = 4m, type = "Elective", degreeId = degree, isActive = false })).Status);
+
+        var created = Assert.Single(await EventsAsync("configuration.course.created"));
+        var deactivated = Assert.Single(await EventsAsync("configuration.course.deactivated"));
+        Assert.Equal("Course", created.EntityType);
+        Assert.Contains("\"creditHours\"", created.ChangesJson);
+        Assert.Contains("\"theoryCreditHours\"", created.ChangesJson);
+        Assert.Contains("Mandatory", created.ChangesJson);
+        Assert.Contains("Elective", deactivated.ChangesJson);
+
+        await Factory.WithDbAsync(db => db.Database.ExecuteSqlRawAsync(
+            "CREATE TRIGGER fail_audit BEFORE INSERT ON \"AuditEvents\" WHEN NEW.\"EventType\" LIKE 'configuration.%' BEGIN SELECT RAISE(ABORT, 'forced audit failure'); END;"));
+
+        var rejectedCreate = await Post(admin, "courses", new { name = "Must not persist", code = "CSE-999", creditHours = 3m, type = "Mandatory", degreeId = degree });
+        var rejectedUpdate = await Put(admin, "courses", course, new { name = "Renamed", code = "CSE-201", creditHours = 4m, type = "Elective", degreeId = degree, isActive = true });
+
+        Assert.Equal(HttpStatusCode.InternalServerError, rejectedCreate.Status);
+        Assert.Equal(HttpStatusCode.InternalServerError, rejectedUpdate.Status);
+        await Factory.WithDbAsync(async db =>
+        {
+            var stored = await db.Courses.SingleAsync();
+            Assert.Equal("Algorithms", stored.Name);
+            Assert.False(stored.IsActive);
+        });
+    }
+
+    [Fact]
     public async Task Configuration_events_are_reviewable_by_an_admin_through_the_audit_api()
     {
         using var admin = await AdminAsync();

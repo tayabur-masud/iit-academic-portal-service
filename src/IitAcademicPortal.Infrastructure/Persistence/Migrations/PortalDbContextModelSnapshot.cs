@@ -275,6 +275,111 @@ namespace IitAcademicPortal.Infrastructure.Persistence.Migrations
                     b.ToTable("Batches", (string)null);
                 });
 
+            modelBuilder.Entity("IitAcademicPortal.Domain.Configuration.Course", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Code")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<string>("CreatedByUserId")
+                        .HasMaxLength(450)
+                        .HasColumnType("character varying(450)");
+
+                    b.Property<decimal>("CreditHours")
+                        .HasPrecision(8, 2)
+                        .HasColumnType("numeric(8,2)");
+
+                    b.Property<Guid>("DegreeId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("DeletedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("DeletedByUserId")
+                        .HasMaxLength(450)
+                        .HasColumnType("character varying(450)");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("IsDeleted")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
+
+                    b.Property<decimal?>("LabCreditHours")
+                        .HasPrecision(8, 2)
+                        .HasColumnType("numeric(8,2)");
+
+                    b.Property<DateTime>("LastModifiedAtUtc")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<string>("LastModifiedByUserId")
+                        .HasMaxLength(450)
+                        .HasColumnType("character varying(450)");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("NormalizedCode")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("NormalizedName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<Guid?>("PrerequisiteCourseId")
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal?>("TheoryCreditHours")
+                        .HasPrecision(8, 2)
+                        .HasColumnType("numeric(8,2)");
+
+                    b.Property<string>("Type")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("DegreeId");
+
+                    b.HasIndex("NormalizedCode")
+                        .IsUnique()
+                        .HasFilter("\"IsDeleted\" = false");
+
+                    b.HasIndex("NormalizedName");
+
+                    b.HasIndex("PrerequisiteCourseId");
+
+                    b.ToTable("Courses", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_Courses_CreditHours_Positive", "\"CreditHours\" > 0");
+
+                            t.HasCheckConstraint("CK_Courses_CreditParts_Sum", "\"TheoryCreditHours\" IS NULL OR \"LabCreditHours\" IS NULL OR \"TheoryCreditHours\" + \"LabCreditHours\" = \"CreditHours\"");
+
+                            t.HasCheckConstraint("CK_Courses_LabCreditHours_Range", "\"LabCreditHours\" IS NULL OR (\"LabCreditHours\" >= 0 AND \"LabCreditHours\" <= \"CreditHours\")");
+
+                            t.HasCheckConstraint("CK_Courses_Prerequisite_NotSelf", "\"PrerequisiteCourseId\" IS NULL OR \"PrerequisiteCourseId\" <> \"Id\"");
+
+                            t.HasCheckConstraint("CK_Courses_TheoryCreditHours_Range", "\"TheoryCreditHours\" IS NULL OR (\"TheoryCreditHours\" >= 0 AND \"TheoryCreditHours\" <= \"CreditHours\")");
+                        });
+                });
+
             modelBuilder.Entity("IitAcademicPortal.Domain.Configuration.Degree", b =>
                 {
                     b.Property<Guid>("Id")
@@ -2210,6 +2315,20 @@ namespace IitAcademicPortal.Infrastructure.Persistence.Migrations
                         .HasForeignKey("StartingSemesterId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
+                });
+
+            modelBuilder.Entity("IitAcademicPortal.Domain.Configuration.Course", b =>
+                {
+                    b.HasOne("IitAcademicPortal.Domain.Configuration.Degree", null)
+                        .WithMany()
+                        .HasForeignKey("DegreeId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("IitAcademicPortal.Domain.Configuration.Course", null)
+                        .WithMany()
+                        .HasForeignKey("PrerequisiteCourseId")
+                        .OnDelete(DeleteBehavior.Restrict);
                 });
 
             modelBuilder.Entity("IitAcademicPortal.Domain.Configuration.District", b =>

@@ -24,6 +24,12 @@ public enum ConfigurationFields
     Division = 64,
     District = 128,
     Credits = 256,
+
+    /// <summary>A course's total and optional theory and lab credit hours.</summary>
+    CourseCredits = 512,
+
+    /// <summary>A course's optional prerequisite course.</summary>
+    Prerequisite = 1024,
 }
 
 public interface IConfigurationResource
@@ -33,6 +39,9 @@ public interface IConfigurationResource
 
     /// <summary>The singular name shown in messages and recorded as the audit entity type.</summary>
     string DisplayName { get; }
+
+    /// <summary>False for a resource that is only ever deactivated (its DELETE is not offered).</summary>
+    bool SupportsDelete { get; }
 
     Task<ConfigurationResult<ConfigurationPage>> ListAsync(ConfigurationContext context, ConfigurationQuery query, CancellationToken cancellationToken);
 
@@ -62,6 +71,24 @@ public abstract class ConfigurationResource<T>(string route, string displayName,
 
     protected string Noun => DisplayName.ToLowerInvariant();
 
+    public virtual bool SupportsDelete => true;
+
+    /// <summary>The property lists are ordered by (then by identifier): the normalized name unless a resource sorts by something else.</summary>
+    protected virtual string SortProperty => nameof(ConfigurationRecord.NormalizedName);
+
+    /// <summary>A record's value of <see cref="SortProperty"/>, which a list cursor carries.</summary>
+    protected virtual string SortKey(T entity) => entity.NormalizedName;
+
+    /// <summary>Whether names are unique (within <see cref="InScope"/>). A resource whose records may share a name turns this off.</summary>
+    protected virtual bool NamesAreUnique => true;
+
+    /// <summary>
+    /// A last check on an update, after the fields are applied and validated: a reason the change conflicts with other records
+    /// (returned as 409 with nothing saved), or null. <paramref name="wasActive"/> tells a deactivation apart from another update.
+    /// </summary>
+    protected virtual Task<string?> UpdateConflictAsync(T entity, bool wasActive, ConfigurationContext context, CancellationToken cancellationToken) =>
+        Task.FromResult<string?>(null);
+
     protected abstract T NewRecord();
 
     /// <summary>The records a name must be unique among. Global by default; a child resource limits it to its parent.</summary>
@@ -71,6 +98,24 @@ public abstract class ConfigurationResource<T>(string route, string displayName,
 
     /// <summary>Filters a list to one parent, for resources that have one.</summary>
     protected virtual Expression<Func<T, bool>>? ParentFilter(Guid parentId) => null;
+
+    /// <summary>
+    /// Filters a list to one type, for resources that have one; adds a <c>type</c> error and returns null for a type the resource
+    /// does not have. The default refuses the filter.
+    /// </summary>
+    protected virtual Expression<Func<T, bool>>? TypeFilter(string type, ConfigurationErrors errors)
+    {
+        errors.Add("type", $"A {Noun} list cannot be filtered by type.");
+        return null;
+    }
+
+    /// <summary>A type name of <typeparamref name="TEnum"/>, ignoring case; never a number.</summary>
+    protected static bool TryParseType<TEnum>(string? value, out TEnum type) where TEnum : struct, Enum
+    {
+        type = default;
+        return !string.IsNullOrWhiteSpace(value) && !int.TryParse(value, out _)
+            && Enum.TryParse(value.Trim(), ignoreCase: true, out type) && Enum.IsDefined(type);
+    }
 
     /// <summary>Sets the resource's own fields and validates its references. Runs after the shared name and code rules.</summary>
     protected virtual Task ApplyAsync(
@@ -131,13 +176,15 @@ public abstract class ConfigurationResource<T>(string route, string displayName,
             errors.Add("page", "Use either a page number or a cursor, not both.");
         }
 
+        var typeFilter = string.IsNullOrWhiteSpace(query.Type) ? null : TypeFilter(query.Type, errors);
+
         if (errors.Any)
         {
             return new ConfigurationResult<ConfigurationPage>(ConfigurationOutcome.Invalid, Errors: errors.ToDictionary());
         }
 
         var search = string.IsNullOrWhiteSpace(query.Search) ? null : NameNormalizer.Normalize(query.Search);
-        var filter = query.ParentId is { } parent ? ParentFilter(parent) : null;
+        var filter = Both(query.ParentId is { } parent ? ParentFilter(parent) : null, typeFilter);
 
         if (query.Page is { } pageNumber)
         {
@@ -145,23 +192,40 @@ public abstract class ConfigurationResource<T>(string route, string displayName,
             // while someone browses; cursor paging cannot shift.
             var total = await context.Store.CountMatchingAsync(filter, search, status, cancellationToken);
             var skip = (int)Math.Min((long)(pageNumber - 1) * pageSize, int.MaxValue);
-            var slice = await context.Store.ListAsync(filter, search, status, null, null, pageSize, cancellationToken, skip);
+            var slice = await context.Store.ListAsync(filter, search, status, null, null, pageSize, cancellationToken, skip, SortProperty);
             var totalPages = (int)Math.Min((total + pageSize - 1) / pageSize, int.MaxValue);
             return new ConfigurationResult<ConfigurationPage>(
                 ConfigurationOutcome.Ok, new ConfigurationPage(slice.Select(ToItem).ToList(), null, pageNumber, total, totalPages));
         }
 
-        var rows = await context.Store.ListAsync(filter, search, status, afterName, afterId, pageSize + 1, cancellationToken);
+        var rows = await context.Store.ListAsync(filter, search, status, afterName, afterId, pageSize + 1, cancellationToken, sortProperty: SortProperty);
 
         string? next = null;
         if (rows.Count > pageSize)
         {
             rows = rows.Take(pageSize).ToList();
-            next = ConfigurationCursor.Encode(rows[^1].NormalizedName, rows[^1].Id);
+            next = ConfigurationCursor.Encode(SortKey(rows[^1]), rows[^1].Id);
         }
 
         return new ConfigurationResult<ConfigurationPage>(
             ConfigurationOutcome.Ok, new ConfigurationPage(rows.Select(ToItem).ToList(), next));
+    }
+
+    /// <summary>Both filters (either may be absent), as one expression the database can run.</summary>
+    private static Expression<Func<T, bool>>? Both(Expression<Func<T, bool>>? first, Expression<Func<T, bool>>? second)
+    {
+        if (first is null || second is null)
+        {
+            return first ?? second;
+        }
+
+        var body = new ParameterSwap(second.Parameters[0], first.Parameters[0]).Visit(second.Body);
+        return Expression.Lambda<Func<T, bool>>(Expression.AndAlso(first.Body, body), first.Parameters);
+    }
+
+    private sealed class ParameterSwap(ParameterExpression from, ParameterExpression to) : ExpressionVisitor
+    {
+        protected override Expression VisitParameter(ParameterExpression node) => node == from ? to : base.VisitParameter(node);
     }
 
     public async Task<ConfigurationResult<ConfigurationItem>> GetAsync(ConfigurationContext context, Guid id, CancellationToken cancellationToken)
@@ -219,6 +283,12 @@ public abstract class ConfigurationResource<T>(string route, string displayName,
             return new ConfigurationResult<ConfigurationItem>(ConfigurationOutcome.Ok, ToItem(entity));
         }
 
+        // Rejected before anything is staged or saved, so neither this record nor any other changes.
+        if (await UpdateConflictAsync(entity, wasActive, context, cancellationToken) is { } conflict)
+        {
+            return new ConfigurationResult<ConfigurationItem>(ConfigurationOutcome.Conflict, Message: conflict);
+        }
+
         var action = wasActive && !entity.IsActive
             ? ConfigurationAuditEventDefinitions.Deactivated
             : ConfigurationAuditEventDefinitions.Updated;
@@ -228,6 +298,12 @@ public abstract class ConfigurationResource<T>(string route, string displayName,
 
     public async Task<ConfigurationResult<ConfigurationItem>> DeleteAsync(ConfigurationContext context, Guid id, CancellationToken cancellationToken)
     {
+        if (!SupportsDelete)
+        {
+            return new ConfigurationResult<ConfigurationItem>(
+                ConfigurationOutcome.NotSupported, Message: $"A {Noun} cannot be deleted. Deactivate it instead.");
+        }
+
         var entity = await context.Store.FindAsync<T>(id, cancellationToken);
         if (entity is null)
         {
@@ -291,7 +367,7 @@ public abstract class ConfigurationResource<T>(string route, string displayName,
             return;
         }
 
-        if (await context.Store.NameExistsAsync(InScope(entity), entity.NormalizedName, entity.Id, cancellationToken))
+        if (NamesAreUnique && await context.Store.NameExistsAsync(InScope(entity), entity.NormalizedName, entity.Id, cancellationToken))
         {
             errors.Add("name", DuplicateNameMessage);
         }
@@ -317,6 +393,10 @@ public abstract class ConfigurationResource<T>(string route, string displayName,
         Reject(!string.IsNullOrWhiteSpace(input.Type), ConfigurationFields.Type, "type");
         Reject(!string.IsNullOrWhiteSpace(input.Address), ConfigurationFields.Address, "address");
         Reject(input.CreditsToBeCompleted.HasValue, ConfigurationFields.Credits, "creditsToBeCompleted");
+        Reject(input.CreditHours.HasValue, ConfigurationFields.CourseCredits, "creditHours");
+        Reject(input.TheoryCreditHours.HasValue, ConfigurationFields.CourseCredits, "theoryCreditHours");
+        Reject(input.LabCreditHours.HasValue, ConfigurationFields.CourseCredits, "labCreditHours");
+        Reject(input.PrerequisiteCourseId.HasValue, ConfigurationFields.Prerequisite, "prerequisiteCourseId");
         Reject(input.DegreeId.HasValue, ConfigurationFields.Degree, "degreeId");
         Reject(input.StartingSemesterId.HasValue, ConfigurationFields.Semester, "startingSemesterId");
         Reject(input.AcademicSessionId.HasValue, ConfigurationFields.Session, "academicSessionId");
@@ -378,8 +458,17 @@ public abstract class ConfigurationResource<T>(string route, string displayName,
         }
         catch (ConfigurationConflictException ex) when (ex.Kind == ConfigurationConflictKind.Duplicate)
         {
+            // A unique index caught a duplicate that raced past the checks: the name, or the code where names are not unique.
             var errors = new ConfigurationErrors();
-            errors.Add("name", DuplicateNameMessage);
+            if (NamesAreUnique)
+            {
+                errors.Add("name", DuplicateNameMessage);
+            }
+            else
+            {
+                errors.Add("code", $"A {Noun} with this code already exists.");
+            }
+
             return Invalid(errors);
         }
 
@@ -439,7 +528,7 @@ public abstract class ConfigurationResource<T>(string route, string displayName,
     }
 }
 
-/// <summary>An opaque position in a list ordered by normalized name then identifier.</summary>
+/// <summary>An opaque position in a list ordered by its sort key (normally the normalized name) then identifier.</summary>
 public static class ConfigurationCursor
 {
     public static string Encode(string normalizedName, Guid id) =>

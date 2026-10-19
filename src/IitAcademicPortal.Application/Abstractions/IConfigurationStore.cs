@@ -22,8 +22,8 @@ public interface IConfigurationStore
         where T : ConfigurationRecord, ICodedRecord;
 
     /// <summary>
-    /// Records ordered by normalized name then identifier, starting after the given position. The search matches
-    /// normalized names, and normalized codes where the catalog has them.
+    /// Records ordered by <paramref name="sortProperty"/> (the normalized name when null) then identifier, starting after the
+    /// given position. The search matches normalized names, and normalized codes where the catalog has them.
     /// </summary>
     Task<IReadOnlyList<T>> ListAsync<T>(
         Expression<Func<T, bool>>? filter,
@@ -33,7 +33,8 @@ public interface IConfigurationStore
         Guid? afterId,
         int take,
         CancellationToken cancellationToken,
-        int skip = 0) where T : ConfigurationRecord;
+        int skip = 0,
+        string? sortProperty = null) where T : ConfigurationRecord;
 
     /// <summary>How many records match the same filter, search, and status a list uses.</summary>
     Task<long> CountMatchingAsync<T>(
@@ -53,6 +54,15 @@ public interface IConfigurationStore
 
     /// <summary>True when any teacher profile still uses this Designation, which blocks deleting it (deactivate it instead).</summary>
     Task<bool> DesignationInUseByTeacherAsync(Guid designationId, CancellationToken cancellationToken);
+
+    /// <summary>The direct prerequisite of a live course, or null; used to walk one prerequisite chain without loading the catalog.</summary>
+    Task<Guid?> PrerequisiteOfAsync(Guid courseId, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// True when an active live course has this course as its prerequisite. With <paramref name="outsideDegreeId"/>, only such courses
+    /// in a different Degree count (a Degree change that would leave them pointing across Degrees).
+    /// </summary>
+    Task<bool> HasActiveDependentCoursesAsync(Guid courseId, Guid? outsideDegreeId, CancellationToken cancellationToken);
 
     /// <summary>
     /// True when a Student admission (Degree, Batch, Hall), a Student address (Upazila), or a Student academic-history entry

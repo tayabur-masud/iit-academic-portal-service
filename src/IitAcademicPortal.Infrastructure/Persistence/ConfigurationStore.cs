@@ -133,7 +133,7 @@ public sealed class ConfigurationStore(PortalDbContext db) : IConfigurationStore
     }
 
     /// <summary>Recognises a unique violation from PostgreSQL, or from SQLite in the test host.</summary>
-    private static ConfigurationConflictKind? Classify(Exception exception)
+    internal static ConfigurationConflictKind? Classify(Exception exception)
     {
         for (var inner = exception.InnerException; inner is not null; inner = inner.InnerException)
         {

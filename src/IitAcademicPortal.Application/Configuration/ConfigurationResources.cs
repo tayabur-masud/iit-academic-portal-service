@@ -101,11 +101,16 @@ public sealed class HallResource()
     protected override ConfigurationItem Project(Hall entity, ConfigurationItem item) => item with { Address = entity.Address };
 }
 
-/// <summary>A degree with its required credit threshold, which Student Management uses for graduation eligibility.</summary>
+/// <summary>
+/// A degree with its completion requirements: the credits to be completed, which Student Management uses for graduation
+/// eligibility, and the minimum CGPA (on the 4.00 scale), which Configuration stores for later use.
+/// </summary>
 public sealed class DegreeResource(DependentsCheck<Degree>? dependents = null)
     : CodedResource<Degree>("degrees", "Degree", "degree", () => new Degree(), ConfigurationFields.Credits, dependents)
 {
     private const decimal MaximumCreditsToBeCompleted = 999_999.99m;
+
+    public const decimal MaximumCgpa = 4.00m;
 
     protected override Task ApplyAsync(
         Degree entity, ConfigurationInput input, ConfigurationContext context, ConfigurationErrors errors, bool isNew, CancellationToken cancellationToken)
@@ -127,14 +132,30 @@ public sealed class DegreeResource(DependentsCheck<Degree>? dependents = null)
             }
         }
 
+        if (input.MinimumCgpaForCompletion is not { } cgpa)
+        {
+            errors.Add("minimumCgpaForCompletion", "Enter the minimum CGPA for completion.");
+        }
+        else if (cgpa <= 0 || cgpa > MaximumCgpa || ((decimal.GetBits(cgpa)[3] >> 16) & 0x7f) > 2)
+        {
+            errors.Add("minimumCgpaForCompletion", "Enter a CGPA greater than 0 and at most 4.00, with no more than two decimal places.");
+        }
+        else
+        {
+            entity.SetMinimumCgpaForCompletion(cgpa);
+        }
+
         return Task.CompletedTask;
     }
 
-    protected override void Describe(Degree entity, Dictionary<string, object?> values) =>
+    protected override void Describe(Degree entity, Dictionary<string, object?> values)
+    {
         values["creditsToBeCompleted"] = entity.CreditsToBeCompleted;
+        values["minimumCgpaForCompletion"] = entity.MinimumCgpaForCompletion;
+    }
 
     protected override ConfigurationItem Project(Degree entity, ConfigurationItem item) =>
-        item with { CreditsToBeCompleted = entity.CreditsToBeCompleted };
+        item with { CreditsToBeCompleted = entity.CreditsToBeCompleted, MinimumCgpaForCompletion = entity.MinimumCgpaForCompletion };
 }
 
 /// <summary>
@@ -395,8 +416,9 @@ public sealed class DistrictResource()
 
     protected override Expression<Func<District, bool>>? ParentFilter(Guid parentId) => district => district.DivisionId == parentId;
 
-    protected override Task<bool> HasDependentsAsync(District entity, ConfigurationContext context, CancellationToken cancellationToken) =>
-        context.Store.ExistsAsync<Upazila>(upazila => upazila.DistrictId == entity.Id, cancellationToken);
+    protected override async Task<bool> HasDependentsAsync(District entity, ConfigurationContext context, CancellationToken cancellationToken) =>
+        await context.Store.ExistsAsync<Upazila>(upazila => upazila.DistrictId == entity.Id, cancellationToken)
+        || await context.Store.ExistsAsync<CityCorporation>(city => city.DistrictId == entity.Id, cancellationToken);
 
     protected override async Task ApplyAsync(
         District entity, ConfigurationInput input, ConfigurationContext context, ConfigurationErrors errors, bool isNew, CancellationToken cancellationToken) =>
@@ -435,4 +457,30 @@ public sealed class UpazilaResource()
     protected override void Describe(Upazila entity, Dictionary<string, object?> values) => values["districtId"] = entity.DistrictId;
 
     protected override ConfigurationItem Project(Upazila entity, ConfigurationItem item) => item with { DistrictId = entity.DistrictId };
+}
+
+/// <summary>A City Corporation of one active District, unique by name among the City Corporations of that District. No code.</summary>
+public sealed class CityCorporationResource()
+    : ConfigurationResource<CityCorporation>("city-corporations", "City corporation", "city-corporation", ConfigurationFields.District)
+{
+    protected override CityCorporation NewRecord() => new();
+
+    protected override string DuplicateNameMessage => "A city corporation with this name already exists in this district.";
+
+    protected override Expression<Func<CityCorporation, bool>> InScope(CityCorporation candidate)
+    {
+        var districtId = candidate.DistrictId;
+        return city => city.DistrictId == districtId;
+    }
+
+    protected override Expression<Func<CityCorporation, bool>>? ParentFilter(Guid parentId) => city => city.DistrictId == parentId;
+
+    protected override async Task ApplyAsync(
+        CityCorporation entity, ConfigurationInput input, ConfigurationContext context, ConfigurationErrors errors, bool isNew, CancellationToken cancellationToken) =>
+        entity.DistrictId = await ValidateReferenceAsync<District>(
+            input.DistrictId, entity.DistrictId, isNew, "districtId", "district", context, errors, cancellationToken);
+
+    protected override void Describe(CityCorporation entity, Dictionary<string, object?> values) => values["districtId"] = entity.DistrictId;
+
+    protected override ConfigurationItem Project(CityCorporation entity, ConfigurationItem item) => item with { DistrictId = entity.DistrictId };
 }

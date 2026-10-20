@@ -49,6 +49,7 @@ public sealed class GeographyImportService(IConfigurationStore store, IAuditEven
         var divisions = new List<Division>();
         var districts = new List<District>();
         var upazilas = new List<Upazila>();
+        var cityCorporations = new List<CityCorporation>();
         foreach (var seedDivision in seed.Divisions)
         {
             var division = new Division();
@@ -65,12 +66,20 @@ public sealed class GeographyImportService(IConfigurationStore store, IAuditEven
                     upazila.Rename(seedUpazila.Name);
                     upazilas.Add(upazila);
                 }
+
+                foreach (var seedCity in seedDistrict.CityCorporations)
+                {
+                    var city = new CityCorporation { DistrictId = district.Id };
+                    city.Rename(seedCity.Name);
+                    cityCorporations.Add(city);
+                }
             }
         }
 
         store.AddRange(divisions);
         store.AddRange(districts);
         store.AddRange(upazilas);
+        store.AddRange(cityCorporations);
         recorder.Stage(new AuditEventRequest(ConfigurationAuditEventDefinitions.GeographyImported, AuditOutcome.Success)
         {
             EntityType = "Geography",
@@ -81,6 +90,7 @@ public sealed class GeographyImportService(IConfigurationStore store, IAuditEven
                 ["divisions"] = divisions.Count,
                 ["districts"] = districts.Count,
                 ["upazilas"] = upazilas.Count,
+                ["cityCorporations"] = cityCorporations.Count,
             },
         });
 
@@ -100,5 +110,6 @@ public sealed class GeographyImportService(IConfigurationStore store, IAuditEven
     private async Task<bool> IsTargetEmptyAsync(CancellationToken cancellationToken) =>
         await store.CountAsync<Division>(cancellationToken) == 0
         && await store.CountAsync<District>(cancellationToken) == 0
-        && await store.CountAsync<Upazila>(cancellationToken) == 0;
+        && await store.CountAsync<Upazila>(cancellationToken) == 0
+        && await store.CountAsync<CityCorporation>(cancellationToken) == 0;
 }

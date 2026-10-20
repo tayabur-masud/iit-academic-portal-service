@@ -15,6 +15,7 @@ public sealed class ConfigurationAuthorizationTests : ConfigurationTestBase
     [
         "institutions", "education-boards", "education-groups", "examination-types", "degrees", "semesters",
         "academic-sessions", "designations", "halls", "batches", "courses", "geography/divisions", "geography/districts", "geography/upazilas",
+        "geography/city-corporations",
     ];
 
     public static TheoryData<string, string, string> Calls()
@@ -81,7 +82,8 @@ public sealed class ConfigurationAuthorizationTests : ConfigurationTestBase
             Assert.Equal(0, await db.EducationalInstitutions.CountAsync() + await db.EducationBoards.CountAsync()
                 + await db.EducationGroups.CountAsync() + await db.ExaminationTypes.CountAsync() + await db.Degrees.CountAsync()
                 + await db.Semesters.CountAsync() + await db.AcademicSessions.CountAsync() + await db.Designations.CountAsync()
-                + await db.Halls.CountAsync() + await db.Batches.CountAsync() + await db.Divisions.CountAsync() + await db.Districts.CountAsync() + await db.Upazilas.CountAsync());
+                + await db.Halls.CountAsync() + await db.Batches.CountAsync() + await db.Divisions.CountAsync() + await db.Districts.CountAsync() + await db.Upazilas.CountAsync()
+                + await db.CityCorporations.CountAsync());
         });
         Assert.DoesNotContain(await Factory.AuditEventsAsync(), e => e.EventType.StartsWith("configuration.", StringComparison.Ordinal));
     }
@@ -94,7 +96,7 @@ public sealed class ConfigurationAuthorizationTests : ConfigurationTestBase
         using var client = Factory.CreatePortalClient();
         await client.SignInSuccessfullyAsync(email);
 
-        Assert.Equal(HttpStatusCode.Created, (await Post(client, "degrees", new { name = "As admin", creditsToBeCompleted = 120m })).Status);
+        Assert.Equal(HttpStatusCode.Created, (await Post(client, "degrees", new { name = "As admin", creditsToBeCompleted = 120m, minimumCgpaForCompletion = 2.50m })).Status);
 
         Assert.Equal(HttpStatusCode.OK, (await client.SetActiveRoleAsync(PortalRoles.Teacher)).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, (await Get(client, "degrees")).Status);

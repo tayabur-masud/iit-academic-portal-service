@@ -24,8 +24,8 @@ public sealed class CourseCatalogApiTests : ConfigurationTestBase
     public async Task The_list_searches_name_and_code_filters_by_status_and_degree_and_pages()
     {
         using var admin = await AdminAsync();
-        var emit = await CreateAsync(admin, "degrees", new { name = "EMIT", creditsToBeCompleted = 48m });
-        var pgdit = await CreateAsync(admin, "degrees", new { name = "PGDIT", creditsToBeCompleted = 36m });
+        var emit = await CreateAsync(admin, "degrees", new { name = "EMIT", creditsToBeCompleted = 48m, minimumCgpaForCompletion = 2.50m });
+        var pgdit = await CreateAsync(admin, "degrees", new { name = "PGDIT", creditsToBeCompleted = 36m, minimumCgpaForCompletion = 2.50m });
         await CreateAsync(admin, Courses, Course(emit, "EM-101", "Networking"));
         await CreateAsync(admin, Courses, Course(emit, "EM-102", "Databases"));
         await CreateAsync(admin, Courses, Course(pgdit, "PG-101", "Networking Basics"));
@@ -52,8 +52,8 @@ public sealed class CourseCatalogApiTests : ConfigurationTestBase
     public async Task The_list_filters_by_type_with_the_other_filters_and_refuses_an_unknown_type()
     {
         using var admin = await AdminAsync();
-        var emit = await CreateAsync(admin, "degrees", new { name = "EMIT", creditsToBeCompleted = 48m });
-        var pgdit = await CreateAsync(admin, "degrees", new { name = "PGDIT", creditsToBeCompleted = 36m });
+        var emit = await CreateAsync(admin, "degrees", new { name = "EMIT", creditsToBeCompleted = 48m, minimumCgpaForCompletion = 2.50m });
+        var pgdit = await CreateAsync(admin, "degrees", new { name = "PGDIT", creditsToBeCompleted = 36m, minimumCgpaForCompletion = 2.50m });
         await CreateAsync(admin, Courses, Course(emit, "EM-101", "Networking"));
         await CreateAsync(admin, Courses, Course(emit, "EM-201", "Cloud", type: "Elective"));
         await CreateAsync(admin, Courses, Course(pgdit, "PG-201", "Security", type: "Elective"));
@@ -81,7 +81,7 @@ public sealed class CourseCatalogApiTests : ConfigurationTestBase
     public async Task The_list_is_ordered_by_code_in_both_paging_modes()
     {
         using var admin = await AdminAsync();
-        var degree = await CreateAsync(admin, "degrees", new { name = "EMIT", creditsToBeCompleted = 48m });
+        var degree = await CreateAsync(admin, "degrees", new { name = "EMIT", creditsToBeCompleted = 48m, minimumCgpaForCompletion = 2.50m });
         // Names in the opposite order to codes, and a repeated name, so a name order would show.
         await CreateAsync(admin, Courses, Course(degree, "EM-103", "Algorithms"));
         await CreateAsync(admin, Courses, Course(degree, "EM-101", "Systems"));
@@ -116,7 +116,7 @@ public sealed class CourseCatalogApiTests : ConfigurationTestBase
     public async Task A_course_reads_with_its_fields_and_audit_facts_and_the_prerequisite_can_be_cleared()
     {
         using var admin = await AdminAsync();
-        var degree = await CreateAsync(admin, "degrees", new { name = "EMIT", creditsToBeCompleted = 48m });
+        var degree = await CreateAsync(admin, "degrees", new { name = "EMIT", creditsToBeCompleted = 48m, minimumCgpaForCompletion = 2.50m });
         var basics = await CreateAsync(admin, Courses, Course(degree, "EM-100", "Basics"));
         var advanced = await CreateAsync(admin, Courses, new { name = "Advanced", code = "EM-200", creditHours = 4m, theoryCreditHours = 3m, type = "Elective", degreeId = degree, prerequisiteCourseId = basics });
 
@@ -141,9 +141,9 @@ public sealed class CourseCatalogApiTests : ConfigurationTestBase
     public async Task Course_fields_are_refused_on_other_catalogs_and_other_catalog_fields_on_a_course()
     {
         using var admin = await AdminAsync();
-        var degree = await CreateAsync(admin, "degrees", new { name = "EMIT", creditsToBeCompleted = 48m });
+        var degree = await CreateAsync(admin, "degrees", new { name = "EMIT", creditsToBeCompleted = 48m, minimumCgpaForCompletion = 2.50m });
 
-        var (onDegree, degreeProblem) = await Post(admin, "degrees", new { name = "X", creditsToBeCompleted = 10m, creditHours = 3m });
+        var (onDegree, degreeProblem) = await Post(admin, "degrees", new { name = "X", creditsToBeCompleted = 10m, minimumCgpaForCompletion = 2.50m, creditHours = 3m });
         var (onCourse, courseProblem) = await Post(admin, Courses, new { name = "Y", code = "Y-1", creditHours = 3m, type = "Mandatory", degreeId = degree, address = "Somewhere" });
 
         Assert.Equal(HttpStatusCode.BadRequest, onDegree);
@@ -156,7 +156,7 @@ public sealed class CourseCatalogApiTests : ConfigurationTestBase
     public async Task There_is_no_delete_for_a_course_and_the_course_stays()
     {
         using var admin = await AdminAsync();
-        var degree = await CreateAsync(admin, "degrees", new { name = "EMIT", creditsToBeCompleted = 48m });
+        var degree = await CreateAsync(admin, "degrees", new { name = "EMIT", creditsToBeCompleted = 48m, minimumCgpaForCompletion = 2.50m });
         var course = await CreateAsync(admin, Courses, Course(degree, "EM-100", "Basics"));
 
         using var response = await admin.SendAsync(HttpMethod.Delete, $"{Root}/{Courses}/{course}");
@@ -172,7 +172,7 @@ public sealed class CourseCatalogApiTests : ConfigurationTestBase
     public async Task Course_changes_never_touch_student_admissions_or_academic_history()
     {
         using var admin = await AdminAsync();
-        var degree = await CreateAsync(admin, "degrees", new { name = "EMIT", creditsToBeCompleted = 48m });
+        var degree = await CreateAsync(admin, "degrees", new { name = "EMIT", creditsToBeCompleted = 48m, minimumCgpaForCompletion = 2.50m });
         string before = string.Empty;
         await Factory.WithDbAsync(async db =>
         {

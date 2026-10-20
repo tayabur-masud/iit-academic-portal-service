@@ -22,7 +22,7 @@ public sealed class AuditedEntityStampTests : ConfigurationTestBase
     {
         using var admin = await AdminAsync();
 
-        var (status, json) = await Post(admin, "degrees", new { name = "Stamped", creditsToBeCompleted = 120m });
+        var (status, json) = await Post(admin, "degrees", new { name = "Stamped", creditsToBeCompleted = 120m, minimumCgpaForCompletion = 2.50m });
 
         Assert.Equal(HttpStatusCode.Created, status);
         Assert.Equal(AdminUserId, Text(json, "createdByUserId"));
@@ -39,7 +39,7 @@ public sealed class AuditedEntityStampTests : ConfigurationTestBase
         using var admin = await AdminAsync();
         Factory.Clock.Advance(TimeSpan.FromHours(2));
 
-        var (_, json) = await Post(admin, "degrees", new { name = "Future clock", creditsToBeCompleted = 120m });
+        var (_, json) = await Post(admin, "degrees", new { name = "Future clock", creditsToBeCompleted = 120m, minimumCgpaForCompletion = 2.50m });
 
         Assert.InRange(Time(json, "createdAtUtc"), DateTime.UtcNow.AddHours(2).AddMinutes(-2), DateTime.UtcNow.AddHours(2).AddMinutes(1));
     }
@@ -106,7 +106,7 @@ public sealed class AuditedEntityStampTests : ConfigurationTestBase
         var before = (await Get(admin, $"degrees/{id}")).Body;
         Factory.Clock.Advance(TimeSpan.FromMinutes(30));
 
-        var (_, after) = await Put(admin, "degrees", id, new { name = "Quiet", creditsToBeCompleted = 120m });
+        var (_, after) = await Put(admin, "degrees", id, new { name = "Quiet", creditsToBeCompleted = 120m, minimumCgpaForCompletion = 2.50m });
 
         Assert.Equal(Time(before, "lastModifiedAtUtc"), Time(after, "lastModifiedAtUtc"));
         Assert.Equal(Text(before, "lastModifiedByUserId"), Text(after, "lastModifiedByUserId"));

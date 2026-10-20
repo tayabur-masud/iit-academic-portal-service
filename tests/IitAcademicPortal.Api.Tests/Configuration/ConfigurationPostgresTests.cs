@@ -2,6 +2,8 @@ using IitAcademicPortal.Api.Tests.Infrastructure;
 using IitAcademicPortal.Application.Configuration;
 using IitAcademicPortal.Domain.Configuration;
 using IitAcademicPortal.Infrastructure.Persistence;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Npgsql;
 
 namespace IitAcademicPortal.Api.Tests.Configuration;
@@ -24,6 +26,7 @@ public sealed class ConfigurationPostgresTests(PostgresDatabaseFixture fixture) 
         if (record is Degree degree)
         {
             degree.SetCreditsToBeCompleted(120m);
+            degree.SetMinimumCgpaForCompletion(2.50m);
         }
         return record;
     }
@@ -221,6 +224,7 @@ public sealed class ConfigurationPostgresTests(PostgresDatabaseFixture fixture) 
     {
         var degree = Named(Unique("Credit total"), new Degree());
         degree.SetCreditsToBeCompleted(120.50m);
+        degree.SetMinimumCgpaForCompletion(2.50m);
         await SaveAsync(degree);
 
         await using var connection = await Db.OpenAsync(Db.DdlConnectionString);
@@ -247,6 +251,58 @@ public sealed class ConfigurationPostgresTests(PostgresDatabaseFixture fixture) 
         invalid.Parameters.AddWithValue("id", degree.Id);
         var error = await Assert.ThrowsAsync<PostgresException>(() => invalid.ExecuteNonQueryAsync());
         Assert.Equal(PostgresErrorCodes.CheckViolation, error.SqlState);
+    }
+
+    [PostgresFact]
+    public async Task Degree_minimum_cgpa_is_a_required_numeric_3_2_between_0_and_4_with_no_default()
+    {
+        var degree = Named(Unique("CGPA"), new Degree());
+        degree.SetMinimumCgpaForCompletion(3.25m);
+        await SaveAsync(degree);
+
+        await using var connection = await Db.OpenAsync(Db.DdlConnectionString);
+        await using (var metadata = new NpgsqlCommand(
+            "SELECT data_type, numeric_precision, numeric_scale, is_nullable, column_default IS NULL FROM information_schema.columns " +
+            "WHERE table_schema = 'public' AND table_name = 'Degrees' AND column_name = 'MinimumCgpaForCompletion'",
+            connection))
+        await using (var reader = await metadata.ExecuteReaderAsync())
+        {
+            Assert.True(await reader.ReadAsync());
+            Assert.Equal("numeric", reader.GetString(0));
+            Assert.Equal(3, reader.GetInt32(1));
+            Assert.Equal(2, reader.GetInt32(2));
+            Assert.Equal("NO", reader.GetString(3));
+            Assert.True(reader.GetBoolean(4), "The 2.50 backfill default must not stay on the column.");
+        }
+
+        foreach (var bad in new[] { "0", "4.01", "-1" })
+        {
+            await using var invalid = new NpgsqlCommand($"UPDATE \"Degrees\" SET \"MinimumCgpaForCompletion\" = {bad} WHERE \"Id\" = @id", connection);
+            invalid.Parameters.AddWithValue("id", degree.Id);
+            var error = await Assert.ThrowsAsync<PostgresException>(() => invalid.ExecuteNonQueryAsync());
+            Assert.Equal(PostgresErrorCodes.CheckViolation, error.SqlState);
+        }
+    }
+
+    [PostgresFact]
+    public async Task Degrees_that_exist_before_the_migration_get_a_minimum_cgpa_of_2_50()
+    {
+        await using var database = await PostgresTestDatabase.CreateAsync();
+        await using (var ddl = database.CreateContext(database.DdlConnectionString))
+        {
+            var migrator = ddl.GetService<IMigrator>();
+            await migrator.MigrateAsync("20261019124612_Courses");
+            await using var connection = await database.OpenAsync(database.DdlConnectionString);
+            await PostgresTestDatabase.ExecuteAsync(connection,
+                "INSERT INTO \"Degrees\" (\"Id\", \"Name\", \"NormalizedName\", \"IsActive\", \"CreditsToBeCompleted\") " +
+                "VALUES ('6f1c1f6e-0000-4000-8000-000000000001', 'Old degree', 'OLD DEGREE', true, 36)");
+            await migrator.MigrateAsync();
+        }
+
+        await using var verify = await database.OpenAsync(database.DdlConnectionString);
+        await using var command = new NpgsqlCommand(
+            "SELECT \"MinimumCgpaForCompletion\" FROM \"Degrees\" WHERE \"Id\" = '6f1c1f6e-0000-4000-8000-000000000001'", verify);
+        Assert.Equal(2.50m, (decimal)(await command.ExecuteScalarAsync())!);
     }
 
     private static Course NewCourse(Guid degreeId, string? code = null, decimal credit = 3m, decimal? theory = null, decimal? lab = null, Guid? prerequisite = null)
@@ -345,5 +401,51 @@ public sealed class ConfigurationPostgresTests(PostgresDatabaseFixture fixture) 
         Assert.Contains("IX_Courses_DegreeId", indexes);
         Assert.Contains("IX_Courses_PrerequisiteCourseId", indexes);
         Assert.Contains("IX_Courses_NormalizedCode", indexes);
+    }
+
+    [PostgresFact]
+    public async Task City_corporation_names_are_unique_among_live_rows_of_a_district_and_its_district_key_is_restrictive()
+    {
+        var division = Named(Unique("CC division"), new Division());
+        await SaveAsync(division);
+        var (district, elsewhere) = (Named(Unique("CC district"), new District { DivisionId = division.Id }), Named(Unique("CC other"), new District { DivisionId = division.Id }));
+        await SaveAsync(district, elsewhere);
+        var name = Unique("Metro");
+        var city = Named(name, new CityCorporation { DistrictId = district.Id });
+        await SaveAsync(city);
+
+        Assert.Equal(ConfigurationConflictKind.Duplicate, await ConflictAsync(Named(name.ToUpperInvariant(), new CityCorporation { DistrictId = district.Id })));
+        await SaveAsync(Named(name, new CityCorporation { DistrictId = elsewhere.Id }));
+        // An Upazila of the same name in the same District is a different entity type and does not collide.
+        await SaveAsync(Named(name, new Upazila { DistrictId = district.Id }));
+
+        await using var ddl = await Db.OpenAsync(Db.DdlConnectionString);
+        var error = await Assert.ThrowsAsync<PostgresException>(() => PostgresTestDatabase.ExecuteAsync(ddl, $"DELETE FROM \"Districts\" WHERE \"Id\" = '{district.Id}'"));
+        Assert.Contains(error.SqlState, new[] { "23001", "23503" });
+
+        // A soft-deleted row leaves the unique index, so the name is free again in that District.
+        await PostgresTestDatabase.ExecuteAsync(ddl, $"UPDATE \"CityCorporations\" SET \"IsDeleted\" = true, \"DeletedAtUtc\" = now() WHERE \"Id\" = '{city.Id}'");
+        await SaveAsync(Named(name, new CityCorporation { DistrictId = district.Id }));
+
+        async Task<List<string>> RowsAsync(string sql)
+        {
+            await using var command = new NpgsqlCommand(sql, ddl);
+            var list = new List<string>();
+            await using var reader = await command.ExecuteReaderAsync();
+            while (await reader.ReadAsync())
+            {
+                list.Add(reader.GetString(0));
+            }
+
+            return list;
+        }
+
+        var indexes = await RowsAsync("SELECT indexdef FROM pg_indexes WHERE schemaname = 'public' AND tablename = 'CityCorporations'");
+        Assert.Contains(indexes, i => i.StartsWith("CREATE UNIQUE INDEX") && i.Contains("(\"DistrictId\", \"NormalizedName\")") && i.Contains("\"IsDeleted\" = false"));
+        Assert.DoesNotContain(indexes, i => i.Contains("Code"));
+        var keys = await RowsAsync(
+            "SELECT confdeltype::text || ':' || confrelid::regclass::text FROM pg_constraint WHERE contype = 'f' AND conrelid = '\"CityCorporations\"'::regclass");
+        // One key, to Districts, restrict or no action (never cascade).
+        Assert.Matches("^[ra]:\"Districts\"$", Assert.Single(keys));
     }
 }

@@ -25,6 +25,7 @@ public sealed class ConfigurationDeleteIntegrityTests(PostgresDatabaseFixture fi
         if (record is Degree degree)
         {
             degree.SetCreditsToBeCompleted(120m);
+            degree.SetMinimumCgpaForCompletion(2.50m);
         }
         return record;
     }

@@ -31,6 +31,7 @@ public sealed class StudentPostgresTests(PostgresDatabaseFixture fixture) : ICla
         await using var db = Db.CreateRuntimeContext();
         var degree = Named(new Degree());
         degree.SetCreditsToBeCompleted(36);
+        degree.SetMinimumCgpaForCompletion(2.50m);
         var semester = Named(new Semester());
         var session = Named(new AcademicSession());
         var division = Named(new Division());

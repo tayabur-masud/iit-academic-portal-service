@@ -57,6 +57,10 @@ public partial class PortalDbContext(DbContextOptions<PortalDbContext> options) 
 
     public DbSet<Upazila> Upazilas => Set<Upazila>();
 
+    public DbSet<CityCorporation> CityCorporations => Set<CityCorporation>();
+
+    public DbSet<Grade> Grades => Set<Grade>();
+
     public DbSet<TeacherProfile> TeacherProfiles => Set<TeacherProfile>();
 
     public DbSet<StudentProfile> StudentProfiles => Set<StudentProfile>();
@@ -155,7 +159,7 @@ public partial class PortalDbContext(DbContextOptions<PortalDbContext> options) 
             item.HasIndex(i => new { i.State, i.NextAttemptAtUtc });
         });
 
-        ConfigureConfiguration(builder);
+        ConfigureConfiguration(builder, Database.IsNpgsql());
         ConfigureTeachers(builder);
         ConfigureStudents(builder);
         ConfigureNotifications(builder);
@@ -301,7 +305,7 @@ public partial class PortalDbContext(DbContextOptions<PortalDbContext> options) 
     /// every relationship is restrictive, so the database is the last guard against duplicates and against
     /// deleting a record that something still refers to.
     /// </summary>
-    private static void ConfigureConfiguration(ModelBuilder builder)
+    private static void ConfigureConfiguration(ModelBuilder builder, bool isNpgsql)
     {
         // Independent catalogs: one globally unique normalized name each.
         MapRecord<EducationalInstitution>(builder, "EducationalInstitutions", unique: true).Entity<EducationalInstitution>(e =>
@@ -317,7 +321,14 @@ public partial class PortalDbContext(DbContextOptions<PortalDbContext> options) 
         MapRecord<Degree>(builder, "Degrees", unique: true).Entity<Degree>(e =>
         {
             e.Property(x => x.CreditsToBeCompleted).HasPrecision(8, 2).IsRequired();
-            e.ToTable(t => t.HasCheckConstraint("CK_Degrees_CreditsToBeCompleted_Positive", "\"CreditsToBeCompleted\" > 0"));
+            e.Property(x => x.MinimumCgpaForCompletion).HasPrecision(3, 2).IsRequired();
+            e.ToTable(t =>
+            {
+                t.HasCheckConstraint("CK_Degrees_CreditsToBeCompleted_Positive", "\"CreditsToBeCompleted\" > 0");
+                // SQLite (the test host) stores decimals as text, so compare them as numbers there.
+                var cgpa = isNpgsql ? "\"MinimumCgpaForCompletion\"" : "CAST(\"MinimumCgpaForCompletion\" AS REAL)";
+                t.HasCheckConstraint("CK_Degrees_MinimumCgpaForCompletion_Range", $"{cgpa} > 0 AND {cgpa} <= 4");
+            });
         });
         MapCode<Degree>(builder);
         MapRecord<Semester>(builder, "Semesters", unique: true);
@@ -365,7 +376,7 @@ public partial class PortalDbContext(DbContextOptions<PortalDbContext> options) 
         });
         MapCode<Course>(builder);
 
-        // Division names are global; District and Upazila names are unique within their parent.
+        // Division names are global; District, Upazila, and City Corporation names are unique within their parent.
         MapRecord<Division>(builder, "Divisions", unique: true);
         MapRecord<District>(builder, "Districts", unique: false).Entity<District>(e =>
         {
@@ -373,6 +384,37 @@ public partial class PortalDbContext(DbContextOptions<PortalDbContext> options) 
             e.HasOne<Division>().WithMany().HasForeignKey(x => x.DivisionId).OnDelete(DeleteBehavior.Restrict);
         });
         MapRecord<Upazila>(builder, "Upazilas", unique: false).Entity<Upazila>(e =>
+        {
+            e.HasIndex(x => new { x.DistrictId, x.NormalizedName }).IsUnique().HasFilter(LiveOnly);
+            e.HasOne<District>().WithMany().HasForeignKey(x => x.DistrictId).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        // One global Grade scale. The letter grade (Name) is unique among live bands. Bounds keep whatever decimals the Admin
+        // gives them (an unconstrained numeric); the numeric grade is numeric(3,2). SQLite (the test host) stores decimals as
+        // text, so its checks compare them as numbers. Whether the active bands cover 0-100 is checked by GradeScaleService.
+        MapRecord<Grade>(builder, "Grades", unique: true).Entity<Grade>(e =>
+        {
+            if (isNpgsql)
+            {
+                e.Property(x => x.MarksLowerBound).HasColumnType("numeric");
+                e.Property(x => x.MarksUpperBound).HasColumnType("numeric");
+            }
+
+            e.Property(x => x.NumericGrade).HasPrecision(3, 2);
+            e.Property(x => x.Comment).HasMaxLength(Grade.MaxCommentLength).IsRequired();
+            string Number(string column) => isNpgsql ? $"\"{column}\"" : $"CAST(\"{column}\" AS REAL)";
+            var (lower, upper, numeric) = (Number("MarksLowerBound"), Number("MarksUpperBound"), Number("NumericGrade"));
+            e.ToTable(t =>
+            {
+                t.HasCheckConstraint("CK_Grades_Marks_Range", $"{lower} >= 0 AND {upper} <= 100 AND {lower} < {upper}");
+                t.HasCheckConstraint("CK_Grades_UpperBoundInclusive_At100", $"NOT \"UpperBoundInclusive\" OR {upper} = 100");
+                t.HasCheckConstraint("CK_Grades_NumericGrade_Range", $"{numeric} >= 0 AND {numeric} <= 4");
+                t.HasCheckConstraint("CK_Grades_Comment_NotBlank", isNpgsql ? "btrim(\"Comment\") <> ''" : "trim(\"Comment\") <> ''");
+            });
+        });
+
+        // The unique (DistrictId, NormalizedName) index also serves District lookups, as it does for Upazilas.
+        MapRecord<CityCorporation>(builder, "CityCorporations", unique: false).Entity<CityCorporation>(e =>
         {
             e.HasIndex(x => new { x.DistrictId, x.NormalizedName }).IsUnique().HasFilter(LiveOnly);
             e.HasOne<District>().WithMany().HasForeignKey(x => x.DistrictId).OnDelete(DeleteBehavior.Restrict);

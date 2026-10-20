@@ -28,7 +28,7 @@ public sealed class ConfigurationAuditTransactionTests : ConfigurationTestBase
     private static object Body(string route, string name, bool? active = null) => route switch
     {
         "institutions" => new { name, type = "College", isActive = active },
-        "degrees" => new { name, isActive = active, creditsToBeCompleted = 120m },
+        "degrees" => new { name, isActive = active, creditsToBeCompleted = 120m, minimumCgpaForCompletion = 2.50m },
         _ => new { name, isActive = active },
     };
 
@@ -92,6 +92,7 @@ public sealed class ConfigurationAuditTransactionTests : ConfigurationTestBase
         var division = await CreateAsync(admin, "geography/divisions", new { name = "Dhaka" });
         var district = await CreateAsync(admin, "geography/districts", new { name = "Gazipur", divisionId = division });
         await CreateAsync(admin, "geography/upazilas", new { name = "Sadar", districtId = district });
+        var city = await CreateAsync(admin, "geography/city-corporations", new { name = "Gazipur City Corporation", districtId = district });
 
         var batchEvent = Assert.Single(await EventsAsync("configuration.batch."));
         var batchChanges = Changes(batchEvent);
@@ -101,6 +102,10 @@ public sealed class ConfigurationAuditTransactionTests : ConfigurationTestBase
         Assert.Equal(division.ToString(), Changes(Assert.Single(await EventsAsync("configuration.district.")))["divisionId"].GetProperty("newValue").GetString());
         Assert.Equal(district.ToString(), Changes(Assert.Single(await EventsAsync("configuration.upazila.")))["districtId"].GetProperty("newValue").GetString());
         Assert.Single(await EventsAsync("configuration.division."));
+        var cityEvent = Assert.Single(await EventsAsync("configuration.city-corporation."));
+        Assert.Equal("configuration.city-corporation.created", cityEvent.EventType);
+        Assert.Equal(city.ToString(), cityEvent.EntityId);
+        Assert.Equal(district.ToString(), Changes(cityEvent)["districtId"].GetProperty("newValue").GetString());
     }
 
     [Fact]
@@ -144,7 +149,7 @@ public sealed class ConfigurationAuditTransactionTests : ConfigurationTestBase
         using var admin = await AdminAsync();
         var id = await CreateAsync(admin, "degrees", new { name = "Same" });
 
-        Assert.Equal(HttpStatusCode.OK, (await Put(admin, "degrees", id, new { name = "Same", creditsToBeCompleted = 120m })).Status);
+        Assert.Equal(HttpStatusCode.OK, (await Put(admin, "degrees", id, new { name = "Same", creditsToBeCompleted = 120m, minimumCgpaForCompletion = 2.50m })).Status);
 
         Assert.Empty(await EventsAsync("configuration.degree.updated"));
     }
@@ -173,8 +178,8 @@ public sealed class ConfigurationAuditTransactionTests : ConfigurationTestBase
         await Factory.WithDbAsync(db => db.Database.ExecuteSqlRawAsync(
             "CREATE TRIGGER fail_audit BEFORE INSERT ON \"AuditEvents\" WHEN NEW.\"EventType\" LIKE 'configuration.%' BEGIN SELECT RAISE(ABORT, 'forced audit failure'); END;"));
 
-        var created = await Post(admin, "degrees", new { name = "Must not persist", creditsToBeCompleted = 120m });
-        var updated = await Put(admin, "degrees", keep, new { name = "Renamed", creditsToBeCompleted = 120m });
+        var created = await Post(admin, "degrees", new { name = "Must not persist", creditsToBeCompleted = 120m, minimumCgpaForCompletion = 2.50m });
+        var updated = await Put(admin, "degrees", keep, new { name = "Renamed", creditsToBeCompleted = 120m, minimumCgpaForCompletion = 2.50m });
         var deleted = await Delete(admin, "semesters", victim);
 
         Assert.Equal(HttpStatusCode.InternalServerError, created.Status);
@@ -191,9 +196,13 @@ public sealed class ConfigurationAuditTransactionTests : ConfigurationTestBase
     public async Task Course_create_update_and_deactivation_record_their_fields_and_roll_back_when_the_audit_write_fails()
     {
         using var admin = await AdminAsync();
-        var degree = await CreateAsync(admin, "degrees", new { name = "Audited Degree", creditsToBeCompleted = 120m });
+        var degree = await CreateAsync(admin, "degrees", new { name = "Audited Degree", creditsToBeCompleted = 120m, minimumCgpaForCompletion = 2.50m });
         var course = await CreateAsync(admin, "courses", new { name = "Algorithms", code = "CSE-201", creditHours = 3m, theoryCreditHours = 2m, labCreditHours = 1m, type = "Mandatory", degreeId = degree });
         Assert.Equal(HttpStatusCode.OK, (await Put(admin, "courses", course, new { name = "Algorithms", code = "CSE-201", creditHours = 4m, type = "Elective", degreeId = degree, isActive = false })).Status);
+
+        // The degree's completion requirements are recorded on its own event.
+        var degreeCreated = Assert.Single(await EventsAsync("configuration.degree.created"));
+        Assert.Equal(2.50m, Changes(degreeCreated)["minimumCgpaForCompletion"].GetProperty("newValue").GetDecimal());
 
         var created = Assert.Single(await EventsAsync("configuration.course.created"));
         var deactivated = Assert.Single(await EventsAsync("configuration.course.deactivated"));

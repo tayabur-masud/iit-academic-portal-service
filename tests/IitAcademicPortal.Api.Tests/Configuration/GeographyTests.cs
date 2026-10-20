@@ -2,12 +2,13 @@ using System.Net;
 
 namespace IitAcademicPortal.Api.Tests.Configuration;
 
-/// <summary>Division, District, and Upazila: parent integrity, name scopes, no codes, and reference-safe deletes.</summary>
+/// <summary>Division, District, Upazila, and City Corporation: parent integrity, name scopes, no codes, and reference-safe deletes.</summary>
 public sealed class GeographyTests : ConfigurationTestBase
 {
     private const string Divisions = "geography/divisions";
     private const string Districts = "geography/districts";
     private const string Upazilas = "geography/upazilas";
+    private const string CityCorporations = "geography/city-corporations";
 
     [Fact]
     public async Task The_whole_hierarchy_can_be_created_read_updated_and_listed_by_parent()
@@ -198,5 +199,123 @@ public sealed class GeographyTests : ConfigurationTestBase
         var (status, problem) = await Post(admin, Districts, new { name = "Orphan", divisionId = other });
         Assert.Equal(HttpStatusCode.BadRequest, status);
         Assert.Contains("does not exist", FirstError(problem, "divisionId"));
+    }
+
+    [Fact]
+    public async Task A_city_corporation_is_created_read_updated_and_listed_by_district()
+    {
+        using var admin = await AdminAsync();
+        var dhaka = await CreateAsync(admin, Divisions, new { name = "Dhaka" });
+        var gazipur = await CreateAsync(admin, Districts, new { name = "Gazipur", divisionId = dhaka });
+        var narayanganj = await CreateAsync(admin, Districts, new { name = "Narayanganj", divisionId = dhaka });
+        var city = await CreateAsync(admin, CityCorporations, new { name = "Gazipur City Corporation", districtId = gazipur });
+        await CreateAsync(admin, CityCorporations, new { name = "Narayanganj City Corporation", districtId = narayanganj });
+
+        var (_, found) = await Get(admin, $"{CityCorporations}/{city}");
+        var (renamed, updated) = await Put(admin, CityCorporations, city, new { name = "Gazipur City", districtId = gazipur });
+
+        Assert.Equal(gazipur, found.GetProperty("districtId").GetGuid());
+        Assert.True(found.GetProperty("isActive").GetBoolean());
+        Assert.False(found.TryGetProperty("code", out _));
+        Assert.Equal(HttpStatusCode.OK, renamed);
+        Assert.Equal("Gazipur City", updated.GetProperty("name").GetString());
+        Assert.Equal(["Gazipur City"], Names((await Get(admin, CityCorporations, $"?districtId={gazipur}")).Body));
+        Assert.Equal(["Narayanganj City Corporation"], Names((await Get(admin, CityCorporations, "?search=narayan")).Body));
+        Assert.Empty(Names((await Get(admin, CityCorporations, $"?districtId={Guid.NewGuid()}")).Body));
+        // City Corporations are a separate District child: they never appear among the Upazilas.
+        Assert.Empty(Names((await Get(admin, Upazilas, $"?districtId={gazipur}")).Body));
+    }
+
+    [Fact]
+    public async Task A_city_corporation_needs_an_existing_active_district_and_has_no_code()
+    {
+        using var admin = await AdminAsync();
+        var division = await CreateAsync(admin, Divisions, new { name = "A" });
+        var active = await CreateAsync(admin, Districts, new { name = "Open", divisionId = division });
+        var inactive = await CreateAsync(admin, Districts, new { name = "Closed", divisionId = division, isActive = false });
+
+        var missing = await Post(admin, CityCorporations, new { name = "No district" });
+        var unknown = await Post(admin, CityCorporations, new { name = "Ghost district", districtId = Guid.NewGuid() });
+        var wrongKind = await Post(admin, CityCorporations, new { name = "Wrong kind", districtId = division });
+        var closed = await Post(admin, CityCorporations, new { name = "Closed district", districtId = inactive });
+        var coded = await Post(admin, CityCorporations, new { name = "Coded", districtId = active, code = "CC-1" });
+        var divisionField = await Post(admin, CityCorporations, new { name = "Division field", districtId = active, divisionId = division });
+
+        Assert.All(new[] { missing, unknown, wrongKind, closed, coded, divisionField }, r => Assert.Equal(HttpStatusCode.BadRequest, r.Status));
+        Assert.True(HasError(missing.Body, "districtId"));
+        Assert.Contains("does not exist", FirstError(unknown.Body, "districtId"));
+        Assert.True(HasError(wrongKind.Body, "districtId"));
+        Assert.True(HasError(closed.Body, "districtId"));
+        Assert.True(HasError(coded.Body, "code"));
+        Assert.True(HasError(divisionField.Body, "divisionId"));
+        Assert.Empty((await Get(admin, CityCorporations, "?status=all")).Body.GetProperty("items").EnumerateArray());
+    }
+
+    [Fact]
+    public async Task City_corporation_names_are_unique_within_a_district_but_may_repeat_across_districts_and_upazilas()
+    {
+        using var admin = await AdminAsync();
+        var division = await CreateAsync(admin, Divisions, new { name = "A" });
+        var one = await CreateAsync(admin, Districts, new { name = "One", divisionId = division });
+        var two = await CreateAsync(admin, Districts, new { name = "Two", divisionId = division });
+        await CreateAsync(admin, CityCorporations, new { name = "Metro City", districtId = one });
+        // An Upazila of the same name in the same District does not conflict: uniqueness is per entity type.
+        await CreateAsync(admin, Upazilas, new { name = "Metro City", districtId = one });
+
+        var (status, problem) = await Post(admin, CityCorporations, new { name = "  metro   CITY ", districtId = one });
+
+        Assert.Equal(HttpStatusCode.BadRequest, status);
+        Assert.Equal("A city corporation with this name already exists in this district.", FirstError(problem, "name"));
+        await CreateAsync(admin, CityCorporations, new { name = "Metro City", districtId = two });
+    }
+
+    [Fact]
+    public async Task Moving_a_city_corporation_needs_an_active_district_but_an_unchanged_inactive_district_may_stay()
+    {
+        using var admin = await AdminAsync();
+        var division = await CreateAsync(admin, Divisions, new { name = "A" });
+        var home = await CreateAsync(admin, Districts, new { name = "Home", divisionId = division });
+        var closed = await CreateAsync(admin, Districts, new { name = "Closed", divisionId = division });
+        var other = await CreateAsync(admin, Districts, new { name = "Other", divisionId = division });
+        await CreateAsync(admin, CityCorporations, new { name = "Taken", districtId = other });
+        var city = await CreateAsync(admin, CityCorporations, new { name = "Taken", districtId = home });
+        await Put(admin, Districts, closed, new { name = "Closed", divisionId = division, isActive = false });
+
+        var (toClosed, closedProblem) = await Put(admin, CityCorporations, city, new { name = "Taken", districtId = closed });
+        var (toTaken, takenProblem) = await Put(admin, CityCorporations, city, new { name = "Taken", districtId = other });
+
+        Assert.Equal(HttpStatusCode.BadRequest, toClosed);
+        Assert.True(HasError(closedProblem, "districtId"));
+        Assert.Equal(HttpStatusCode.BadRequest, toTaken);
+        Assert.True(HasError(takenProblem, "name"));
+        Assert.Equal(home, (await Get(admin, $"{CityCorporations}/{city}")).Body.GetProperty("districtId").GetGuid());
+
+        // Its own District going inactive does not stop a rename that keeps that District.
+        await Put(admin, Districts, home, new { name = "Home", divisionId = division, isActive = false });
+        Assert.Equal(HttpStatusCode.OK, (await Put(admin, CityCorporations, city, new { name = "Renamed", districtId = home })).Status);
+    }
+
+    [Fact]
+    public async Task A_city_corporation_can_be_deactivated_and_deleted_and_blocks_deleting_its_district_while_it_lives()
+    {
+        using var admin = await AdminAsync();
+        var division = await CreateAsync(admin, Divisions, new { name = "A" });
+        var district = await CreateAsync(admin, Districts, new { name = "One", divisionId = division });
+        var city = await CreateAsync(admin, CityCorporations, new { name = "City", districtId = district });
+
+        var (deactivated, item) = await Put(admin, CityCorporations, city, new { name = "City", districtId = district, isActive = false });
+        Assert.Equal(HttpStatusCode.OK, deactivated);
+        Assert.False(item.GetProperty("isActive").GetBoolean());
+        Assert.Empty(Names((await Get(admin, CityCorporations)).Body));
+        Assert.Equal(["City"], Names((await Get(admin, CityCorporations, "?status=inactive")).Body));
+
+        // An inactive City Corporation still blocks deleting its District; a deleted one does not.
+        var (blocked, problem) = await Delete(admin, Districts, district);
+        Assert.Equal(HttpStatusCode.Conflict, blocked);
+        Assert.Contains("Deactivate", problem.GetProperty("detail").GetString());
+
+        Assert.Equal(HttpStatusCode.NoContent, (await Delete(admin, CityCorporations, city)).Status);
+        Assert.Equal(HttpStatusCode.NotFound, (await Get(admin, $"{CityCorporations}/{city}")).Status);
+        Assert.Equal(HttpStatusCode.NoContent, (await Delete(admin, Districts, district)).Status);
     }
 }

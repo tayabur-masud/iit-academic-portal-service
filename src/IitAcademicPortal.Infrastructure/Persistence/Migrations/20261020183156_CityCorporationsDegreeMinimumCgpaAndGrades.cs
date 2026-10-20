@@ -8,26 +8,6 @@ namespace IitAcademicPortal.Infrastructure.Persistence.Migrations
     /// <inheritdoc />
     public partial class CityCorporationsDegreeMinimumCgpaAndGrades : Migration
     {
-        /// <summary>
-        /// The ten initial Grade bands with stable ids. Insert-only: a band that already exists (by id or by live letter grade) is
-        /// left as it is, so running this again never overwrites an Admin's edit or brings back a deleted band.
-        /// </summary>
-        public const string InitialGradesSql = """
-            INSERT INTO "Grades" ("Id", "Name", "NormalizedName", "IsActive", "MarksLowerBound", "MarksUpperBound", "UpperBoundInclusive", "NumericGrade", "Comment")
-            VALUES
-            ('5b0c6a1e-7d3f-5e2a-9c4b-000000000001', 'A+', 'A+', true, 80, 100, true, 4.00, 'Excellent'),
-            ('5b0c6a1e-7d3f-5e2a-9c4b-000000000002', 'A', 'A', true, 75, 80, false, 3.75, 'Better'),
-            ('5b0c6a1e-7d3f-5e2a-9c4b-000000000003', 'A-', 'A-', true, 70, 75, false, 3.50, 'Good'),
-            ('5b0c6a1e-7d3f-5e2a-9c4b-000000000004', 'B+', 'B+', true, 65, 70, false, 3.25, 'Above Average'),
-            ('5b0c6a1e-7d3f-5e2a-9c4b-000000000005', 'B', 'B', true, 60, 65, false, 3.00, 'Average'),
-            ('5b0c6a1e-7d3f-5e2a-9c4b-000000000006', 'B-', 'B-', true, 55, 60, false, 2.75, 'Below Average'),
-            ('5b0c6a1e-7d3f-5e2a-9c4b-000000000007', 'C+', 'C+', true, 50, 55, false, 2.50, 'Satisfactory'),
-            ('5b0c6a1e-7d3f-5e2a-9c4b-000000000008', 'C', 'C', true, 45, 50, false, 2.25, 'Not satisfactory'),
-            ('5b0c6a1e-7d3f-5e2a-9c4b-000000000009', 'D', 'D', true, 40, 45, false, 2.00, 'Pass'),
-            ('5b0c6a1e-7d3f-5e2a-9c4b-00000000000a', 'F', 'F', true, 0, 40, false, 0.00, 'Fail')
-            ON CONFLICT DO NOTHING;
-            """;
-
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
@@ -124,8 +104,6 @@ namespace IitAcademicPortal.Infrastructure.Persistence.Migrations
                 column: "NormalizedName",
                 unique: true,
                 filter: "\"IsDeleted\" = false");
-
-            migrationBuilder.Sql(InitialGradesSql);
         }
 
         /// <inheritdoc />

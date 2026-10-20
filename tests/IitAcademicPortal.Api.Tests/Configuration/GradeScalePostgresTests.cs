@@ -4,22 +4,37 @@ using IitAcademicPortal.Application.Auditing;
 using IitAcademicPortal.Application.Configuration;
 using IitAcademicPortal.Domain.Configuration;
 using IitAcademicPortal.Infrastructure.Persistence;
-using IitAcademicPortal.Infrastructure.Persistence.Migrations;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
 
 namespace IitAcademicPortal.Api.Tests.Configuration;
 
 /// <summary>
-/// The Grade scale on a real PostgreSQL 18 database: the migration's table, constraints, unique live letter grade, and the ten
-/// seeded bands; an insert-only seed that never overwrites Admin edits; and full-scale replacements serialized by the advisory
-/// lock. Each test uses its own database, so the seed is exactly what the migration wrote. Set AUDIT_TEST_POSTGRES to run them.
+/// The Grade scale on a real PostgreSQL 18 database: the migration's table, constraints, and unique live letter grade; the
+/// seed-grades.sql script, which loads the ten initial bands into an empty table only; and full-scale replacements serialized by the
+/// advisory lock. Each test uses its own database. Set AUDIT_TEST_POSTGRES to run them.
 /// </summary>
 [Trait("Category", "PostgreSQL")]
 public sealed class GradeScalePostgresTests
 {
     private static readonly (string Letter, decimal Lower, decimal Upper, bool Inclusive, decimal Numeric, string Comment)[] Initial =
         GradeScaleTests.Initial;
+
+    /// <summary>The fixed ids of the ten initial bands, highest first: version 5 UUIDs of "grade|LETTER" (see seed-grades.sql).</summary>
+    private static readonly Guid[] SeedIds =
+    [
+        new("0ebd496e-c1c2-572e-9973-00adb99eee78"), new("85eac169-0145-55d8-8790-8d348e1a80e7"), new("1d39661a-064c-58e1-a8c2-afe3ce1bbf23"),
+        new("d5e267a5-356d-5590-8f7f-030b01c5ec15"), new("f1327f34-5a08-56af-af5d-df17a64c024a"), new("688bb921-42b9-5f84-9958-ca41db03dfc9"),
+        new("afcee7ed-eda7-5e03-844a-01aea8ffe60f"), new("f58dc5e2-77d5-52be-9126-e96171d660a4"), new("5ee0ac05-278c-502e-a735-505d915788b1"),
+        new("309422f3-8bd8-53db-93b3-43be71326a9d"),
+    ];
+
+    private static async Task SeedAsync(PostgresTestDatabase database)
+    {
+        var script = await File.ReadAllTextAsync(Path.Combine(AppContext.BaseDirectory, "database", "postgresql", "seed-grades.sql"));
+        await using var ddl = await database.OpenAsync(database.DdlConnectionString);
+        await PostgresTestDatabase.ExecuteAsync(ddl, script);
+    }
 
     private static async Task<List<string>> RowsAsync(NpgsqlConnection connection, string sql)
     {
@@ -41,9 +56,12 @@ public sealed class GradeScalePostgresTests
     }
 
     [PostgresFact]
-    public async Task The_migration_seeds_the_ten_initial_bands_with_stable_ids()
+    public async Task The_migrations_leave_grades_empty_and_the_seed_script_loads_the_ten_bands_with_fixed_ids()
     {
         await using var database = await PostgresTestDatabase.CreateAsync();
+        Assert.Empty(await LiveGradesAsync(database));
+
+        await SeedAsync(database);
 
         var grades = await LiveGradesAsync(database);
 
@@ -59,15 +77,16 @@ public sealed class GradeScalePostgresTests
             Assert.Null(grades[i].CreatedByUserId);
         }
 
-        Assert.Equal(GradeSeed.InitialIds.Order(), grades.Select(g => g.Id).Order());
+        Assert.Equal(SeedIds, grades.Select(g => g.Id));
     }
 
     [PostgresFact]
     public async Task The_grade_table_enforces_bounds_numeric_grade_comment_and_a_unique_live_letter()
     {
         await using var database = await PostgresTestDatabase.CreateAsync();
+        await SeedAsync(database);
         await using var ddl = await database.OpenAsync(database.DdlConnectionString);
-        var aPlus = GradeSeed.InitialIds[0];
+        var aPlus = SeedIds[0];
 
         foreach (var (set, state) in new[]
         {
@@ -87,7 +106,7 @@ public sealed class GradeScalePostgresTests
 
         // Only a band ending at 100 may include its upper bound.
         var inclusive = await Assert.ThrowsAsync<PostgresException>(() =>
-            PostgresTestDatabase.ExecuteAsync(ddl, $"UPDATE \"Grades\" SET \"UpperBoundInclusive\" = true WHERE \"Id\" = '{GradeSeed.InitialIds[1]}'"));
+            PostgresTestDatabase.ExecuteAsync(ddl, $"UPDATE \"Grades\" SET \"UpperBoundInclusive\" = true WHERE \"Id\" = '{SeedIds[1]}'"));
         Assert.Equal(PostgresErrorCodes.CheckViolation, inclusive.SqlState);
 
         // A deleted band leaves the unique index, so its letter can be used again.
@@ -108,11 +127,12 @@ public sealed class GradeScalePostgresTests
     public async Task Running_the_seed_again_never_overwrites_admin_edits_or_restores_deleted_bands()
     {
         await using var database = await PostgresTestDatabase.CreateAsync();
+        await SeedAsync(database);
         await using var ddl = await database.OpenAsync(database.DdlConnectionString);
-        await PostgresTestDatabase.ExecuteAsync(ddl, $"UPDATE \"Grades\" SET \"Comment\" = 'Edited by an Admin', \"NumericGrade\" = 3.90 WHERE \"Id\" = '{GradeSeed.InitialIds[0]}'");
-        await PostgresTestDatabase.ExecuteAsync(ddl, $"UPDATE \"Grades\" SET \"IsDeleted\" = true, \"DeletedAtUtc\" = now() WHERE \"Id\" = '{GradeSeed.InitialIds[8]}'");
+        await PostgresTestDatabase.ExecuteAsync(ddl, $"UPDATE \"Grades\" SET \"Comment\" = 'Edited by an Admin', \"NumericGrade\" = 3.90 WHERE \"Id\" = '{SeedIds[0]}'");
+        await PostgresTestDatabase.ExecuteAsync(ddl, $"UPDATE \"Grades\" SET \"IsDeleted\" = true, \"DeletedAtUtc\" = now() WHERE \"Id\" = '{SeedIds[8]}'");
 
-        await PostgresTestDatabase.ExecuteAsync(ddl, CityCorporationsDegreeMinimumCgpaAndGrades.InitialGradesSql);
+        await SeedAsync(database);
 
         var grades = await LiveGradesAsync(database);
         Assert.Equal(9, grades.Count);
@@ -122,11 +142,30 @@ public sealed class GradeScalePostgresTests
     }
 
     [PostgresFact]
+    public async Task The_seed_adds_nothing_while_any_row_remains_and_reseeds_a_table_emptied_with_delete()
+    {
+        await using var database = await PostgresTestDatabase.CreateAsync();
+        await SeedAsync(database);
+        await using var ddl = await database.OpenAsync(database.DdlConnectionString);
+
+        // Every band deleted in the portal: the rows are only marked, so the table is not empty and nothing comes back.
+        await PostgresTestDatabase.ExecuteAsync(ddl, "UPDATE \"Grades\" SET \"IsDeleted\" = true, \"DeletedAtUtc\" = now()");
+        await SeedAsync(database);
+        Assert.Empty(await LiveGradesAsync(database));
+
+        // Removed outright, the table is empty again and the script loads the same ten bands with the same ids.
+        await PostgresTestDatabase.ExecuteAsync(ddl, "DELETE FROM \"Grades\"");
+        await SeedAsync(database);
+        Assert.Equal(SeedIds, (await LiveGradesAsync(database)).Select(g => g.Id));
+    }
+
+    [PostgresFact]
     public async Task Concurrent_valid_replacements_serialize_so_the_committed_scale_is_always_a_complete_partition()
     {
         for (var round = 0; round < 3; round++)
         {
             await using var database = await PostgresTestDatabase.CreateAsync();
+            await SeedAsync(database);
             var start = await LiveGradesAsync(database);
 
             // Each removes D on its own way; applied together without the lock they would overlap on 40-45.

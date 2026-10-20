@@ -412,7 +412,7 @@ the session's **active** Admin role (401 anonymous, 403 any other active role), 
 | Halls (university residential halls) | `halls` | optional `code`, optional `address` |
 | Education groups, examination types, semesters, academic sessions | `education-groups`, `examination-types`, `semesters`, `academic-sessions` | none |
 | Batches | `batches` | `degreeId`, `startingSemesterId`, `academicSessionId`, all required |
-| Grades | `grades` | One global scale: `letterGrade`, `marksLowerBound` (inclusive), `marksUpperBound` (exclusive, except the band ending at 100 with `upperBoundInclusive`), `numericGrade` (0.00-4.00), `comment`. Read with `GET`; the only write is `PUT grades/scale` with the complete scale (bands with an id are updated, without one created, left out deleted), and the active bands must cover 0-100% exactly once. Single-band writes answer 405. Seeded with ten bands by the migration |
+| Grades | `grades` | One global scale: `letterGrade`, `marksLowerBound` (inclusive), `marksUpperBound` (exclusive, except the band ending at 100 with `upperBoundInclusive`), `numericGrade` (0.00-4.00), `comment`. Read with `GET`; the only write is `PUT grades/scale` with the complete scale (bands with an id are updated, without one created, left out deleted), and the active bands must cover 0-100% exactly once. Single-band writes answer 405. The ten initial bands are loaded by `database/postgresql/seed-grades.sql` (below) |
 | Courses | `courses` | required `code` (unique across all courses; names may repeat), `creditHours`, optional `theoryCreditHours` and `labCreditHours`, `type` (Mandatory, Elective), `degreeId`, optional `prerequisiteCourseId` (an active course of the same degree, no cycles). No `DELETE` (405): deactivate instead, which is refused (409) while an active course depends on it. Contract: `specs/008-course-management/contracts/courses-api.md` |
 | Divisions, districts, upazilas, city corporations | `geography/divisions`, `geography/districts`, `geography/upazilas`, `geography/city-corporations` | `divisionId` (district), `districtId` (upazila, city corporation); no codes. A city corporation is a district child alongside its upazilas |
 
@@ -466,16 +466,18 @@ psql -d iit_academic_portal -f database/postgresql/seed-halls.sql
 - To add or rename a hall in the script itself, edit the names in `database/postgresql/seed-halls.sql` and add the new row with its own
   version 5 id; do not change an existing id.
 
-### Seed data: divisions, districts, upazilas
+### Seed data: divisions, districts, upazilas, city corporations
 
 Three SQL scripts in `database/postgresql/` load Bangladesh's geography, built from the owner's own files (`bd-divisions.json`,
 `bd-districts.json`, `bd-upazilas.json`; no official source was cited): `seed-divisions.sql` (8), `seed-districts.sql` (64), and
-`seed-upazilas.sql` (492). Run them as the schema owner after the migrations, **in this order**:
+`seed-upazilas.sql` (492). A fourth, `seed-city-corporations.sql` (13), loads the city corporations from the owner's list of 2026-10-21
+(Dhaka district has two, North and South; no official source was cited). Run them as the schema owner after the migrations, **in this order**:
 
 ```powershell
 psql -v ON_ERROR_STOP=1 -d iit_academic_portal -f database/postgresql/seed-divisions.sql
 psql -v ON_ERROR_STOP=1 -d iit_academic_portal -f database/postgresql/seed-districts.sql
 psql -v ON_ERROR_STOP=1 -d iit_academic_portal -f database/postgresql/seed-upazilas.sql
+psql -v ON_ERROR_STOP=1 -d iit_academic_portal -f database/postgresql/seed-city-corporations.sql
 ```
 
 - **Fixed identifiers**: each `Id` is a version 5 UUID of its level and normalized names under a fixed namespace, written out in the
@@ -483,15 +485,31 @@ psql -v ON_ERROR_STOP=1 -d iit_academic_portal -f database/postgresql/seed-upazi
 - **Safe to run again**: `ON CONFLICT DO NOTHING` skips a row that already exists (same id, or the same live normalized name within its parent)
   and never overwrites one, so later edits in the Configuration screen are kept. A seeded row an Admin deleted stays deleted: its row and
   fixed id are still there, so the script does not bring it back.
-- **Parents are found by name**: a district's division and an upazila's district are looked up by normalized name among rows that are not
+- **Parents are found by name**: a district's division and an upazila's or city corporation's district are looked up by normalized name among rows that are not
   deleted (the scripts are plain SQL, so they check `IsDeleted` themselves), so they also work when a parent already exists under another
   id, and a deleted division or district is never used as a parent. If a parent is missing or was deleted, the script stops with an error
   and adds nothing.
 - **Not audited**: SQL scripts bypass the application, so they write no audit events.
 - Two exact repeats in Natore (source upazila ids 361 and 362) are left out, and "Raipura, Narsingdi" is stored as "Raipura".
+- City corporations have no code, so their usual abbreviations (BCC, DNCC, DSCC, and so on) are not stored.
 - The tables must not hold other, different data for the same names; the scripts add what is missing and leave the rest.
 - Once these scripts have run, the geography tables are not empty, so the import endpoint below refuses to run (409). Use it only on
   empty tables, for example to load an official file that replaces this data after the tables have been emptied.
+
+### Seed data: grades
+
+`seed-grades.sql` in `database/postgresql/` loads the ten initial Grade bands (A+ 80-100 4.00 Excellent down to F 0-40 0.00 Fail). Run it as
+the schema owner after the migrations:
+
+```powershell
+psql -v ON_ERROR_STOP=1 -d iit_academic_portal -f database/postgresql/seed-grades.sql
+```
+
+- **Fixed identifiers**: version 5 UUIDs of `grade|LETTER` under the same namespace as the geography seeds, written out in the script.
+- **Empty table only**: the active bands must cover 0-100% exactly once, so the script never adds rows beside existing ones. If `Grades`
+  holds any row, live or deleted, it adds nothing and prints a notice. To reseed, remove the rows with `DELETE FROM "Grades"` first
+  (nothing refers to a grade); deleting bands in the Configuration screen only marks them deleted, which still counts.
+- It takes the same advisory lock as a scale replacement in the portal, and it writes no audit events.
 
 ### Geography import
 
@@ -499,8 +517,8 @@ The SQL scripts above are the repeatable way to load the geography the owner sup
 `specs/003-configuration/contracts/geographic-seed.schema.json`) with a source citation and version. In Swagger,
 signed in as an Admin:
 
-Each district may carry an optional `cityCorporations` list of names. No City Corporation seed exists yet; the owner has not supplied
-one.
+Each district may carry an optional `cityCorporations` list of names. The owner's 13 city corporations are also available as
+`seed-city-corporations.sql` (above).
 
 1. `POST /api/admin/configuration/geography/import/validate` reports the source, per-level counts (including `cityCorporations`), `targetEmpty`, and
    every problem with its path (`400` with the report if the document is invalid). It writes nothing.

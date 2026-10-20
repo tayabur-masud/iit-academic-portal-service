@@ -6,7 +6,7 @@ using Npgsql;
 namespace IitAcademicPortal.Api.Tests.Configuration;
 
 /// <summary>
-/// The saved geography seed scripts (seed-divisions.sql, seed-districts.sql, seed-upazilas.sql) run against a real PostgreSQL
+/// The saved geography seed scripts (seed-divisions.sql, seed-districts.sql, seed-upazilas.sql, seed-city-corporations.sql) run against a real PostgreSQL
 /// database built with the real migrations: complete, correctly parented, the same fixed identifiers on every new database,
 /// safe to run again, and consistent with the application's name rules. Set AUDIT_TEST_POSTGRES to run them.
 /// </summary>
@@ -240,5 +240,77 @@ public sealed class GeographySeedScriptTests(PostgresDatabaseFixture fixture) : 
         Assert.Contains("deleted", error.MessageText);
         var (_, districts, _) = await ReadAllAsync();
         Assert.Empty(districts);
+    }
+
+    private const string Gazipur = "60233582-651c-55d7-a9cd-0df2a60de33e";
+    private const string GazipurCity = "5080fc9f-1036-5599-927e-c08c97321e73";
+
+    private async Task<List<CityCorporation>> CityCorporationsAsync(bool includeDeleted = false)
+    {
+        await using var db = Db.CreateRuntimeContext();
+        var query = includeDeleted ? db.CityCorporations.IgnoreQueryFilters() : db.CityCorporations;
+        return await query.AsNoTracking().ToListAsync();
+    }
+
+    [PostgresFact]
+    public async Task The_city_corporation_script_loads_the_thirteen_under_their_districts_with_fixed_ids()
+    {
+        await ResetAsync();
+        await RunAllAsync();
+
+        await RunAsync("seed-city-corporations.sql");
+
+        var cities = await CityCorporationsAsync();
+        var (_, districts, _) = await ReadAsync();
+        var districtOf = districts.ToDictionary(d => d.Id, d => d.Name);
+        Assert.Equal(13, cities.Count);
+        Assert.Equal(
+            [
+                "Barishal City Corporation|Barishal", "Bogura City Corporation|Bogura", "Chattogram City Corporation|Chattogram",
+                "Cumilla City Corporation|Cumilla", "Dhaka North City Corporation|Dhaka", "Dhaka South City Corporation|Dhaka",
+                "Gazipur City Corporation|Gazipur", "Khulna City Corporation|Khulna", "Mymensingh City Corporation|Mymensingh",
+                "Narayanganj City Corporation|Narayanganj", "Rajshahi City Corporation|Rajshahi", "Rangpur City Corporation|Rangpur",
+                "Sylhet City Corporation|Sylhet",
+            ],
+            cities.Select(c => $"{c.Name}|{districtOf[c.DistrictId]}").Order(StringComparer.Ordinal));
+        var gazipur = Assert.Single(cities, c => c.Name == "Gazipur City Corporation");
+        Assert.Equal(Guid.Parse(GazipurCity), gazipur.Id);
+        Assert.Equal(Guid.Parse(Gazipur), gazipur.DistrictId);
+        Assert.All(cities, c => Assert.True(c.IsActive));
+        Assert.All(cities, c => Assert.Equal(NameNormalizer.Normalize(c.Name), c.NormalizedName));
+        Assert.All(cities, c => Assert.Null(c.CreatedByUserId));
+    }
+
+    [PostgresFact]
+    public async Task Running_the_city_corporation_script_again_keeps_admin_edits_and_deletions()
+    {
+        await ResetAsync();
+        await RunAllAsync();
+        await RunAsync("seed-city-corporations.sql");
+        await ExecuteAsync(
+            $"UPDATE \"CityCorporations\" SET \"Name\" = 'Gazipur City', \"NormalizedName\" = 'GAZIPUR CITY', \"IsActive\" = false WHERE \"Id\" = '{GazipurCity}';" +
+            "UPDATE \"CityCorporations\" SET \"IsDeleted\" = true, \"DeletedAtUtc\" = now() WHERE \"Name\" = 'Sylhet City Corporation';");
+
+        await RunAsync("seed-city-corporations.sql");
+
+        var all = await CityCorporationsAsync(includeDeleted: true);
+        Assert.Equal(13, all.Count);
+        var gazipur = Assert.Single(all, c => c.Id == Guid.Parse(GazipurCity));
+        Assert.Equal("Gazipur City", gazipur.Name);
+        Assert.False(gazipur.IsActive);
+        Assert.True(Assert.Single(all, c => c.Name == "Sylhet City Corporation").IsDeleted);
+        Assert.Equal(12, (await CityCorporationsAsync()).Count);
+    }
+
+    [PostgresFact]
+    public async Task City_corporations_without_their_districts_stop_with_an_error_and_add_nothing()
+    {
+        await ResetAsync();
+        await RunAsync("seed-divisions.sql");
+
+        var error = await Assert.ThrowsAsync<PostgresException>(() => RunAsync("seed-city-corporations.sql"));
+
+        Assert.Contains("seed-districts.sql", error.MessageText);
+        Assert.Empty(await CityCorporationsAsync(includeDeleted: true));
     }
 }

@@ -19,6 +19,8 @@ public sealed class ConfigurationRequest
 
     public decimal? CreditsToBeCompleted { get; init; }
 
+    public decimal? MinimumCgpaForCompletion { get; init; }
+
     public decimal? CreditHours { get; init; }
 
     public decimal? TheoryCreditHours { get; init; }
@@ -46,6 +48,7 @@ public sealed class ConfigurationRequest
         Type = Type,
         Address = Address,
         CreditsToBeCompleted = CreditsToBeCompleted,
+        MinimumCgpaForCompletion = MinimumCgpaForCompletion,
         CreditHours = CreditHours,
         TheoryCreditHours = TheoryCreditHours,
         LabCreditHours = LabCreditHours,
@@ -68,6 +71,7 @@ public sealed record ConfigurationItemResponse(
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Type,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Address,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] decimal? CreditsToBeCompleted,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] decimal? MinimumCgpaForCompletion,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] decimal? CreditHours,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] decimal? TheoryCreditHours,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] decimal? LabCreditHours,
@@ -85,7 +89,7 @@ public sealed record ConfigurationItemResponse(
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? LastModifiedBy)
 {
     public static ConfigurationItemResponse From(ConfigurationItem item) => new(
-        item.Id, item.Name, item.IsActive, item.Code, item.Type, item.Address, item.CreditsToBeCompleted,
+        item.Id, item.Name, item.IsActive, item.Code, item.Type, item.Address, item.CreditsToBeCompleted, item.MinimumCgpaForCompletion,
         item.CreditHours, item.TheoryCreditHours, item.LabCreditHours, item.PrerequisiteCourseId, item.DegreeId, item.StartingSemesterId, item.AcademicSessionId, item.DivisionId, item.DistrictId,
         item.CreatedAtUtc, item.CreatedByUserId, item.CreatedBy, item.LastModifiedAtUtc, item.LastModifiedByUserId, item.LastModifiedBy);
 }

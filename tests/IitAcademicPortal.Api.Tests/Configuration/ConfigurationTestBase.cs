@@ -67,6 +67,7 @@ public abstract class ConfigurationTestBase : IDisposable
         {
             var payload = JsonSerializer.SerializeToNode(body)!.AsObject();
             payload["creditsToBeCompleted"] ??= 120m;
+            payload["minimumCgpaForCompletion"] ??= 2.50m;
             body = payload;
         }
 

@@ -4,11 +4,11 @@ using Microsoft.AspNetCore.Mvc;
 
 namespace IitAcademicPortal.Api.Controllers.Configuration;
 
-/// <summary>Divisions, Districts, and Upazilas under <c>/api/admin/configuration/geography/{level}</c>.</summary>
+/// <summary>Divisions, Districts, Upazilas, and City Corporations under <c>/api/admin/configuration/geography/{level}</c>.</summary>
 [Route("api/admin/configuration/geography/{level}")]
 public sealed class GeographyController(CatalogService service, GeographyImportService import) : ConfigurationControllerBase(service)
 {
-    private static readonly HashSet<string> Levels = new(StringComparer.Ordinal) { "divisions", "districts", "upazilas" };
+    private static readonly HashSet<string> Levels = new(StringComparer.Ordinal) { "divisions", "districts", "upazilas", "city-corporations" };
 
     protected override string? ResourceRoute =>
         RouteData.Values["level"] is string level && Levels.Contains(level) ? level : null;

@@ -37,6 +37,7 @@ public sealed class CatalogCrudTests : ConfigurationTestBase
         else if (route == "degrees")
         {
             body["creditsToBeCompleted"] = 120m;
+            body["minimumCgpaForCompletion"] = 2.50m;
         }
 
         return body;
@@ -599,7 +600,7 @@ public sealed class CatalogCrudTests : ConfigurationTestBase
         Assert.Equal(HttpStatusCode.BadRequest, missing);
         Assert.True(HasError(missingProblem, "creditsToBeCompleted"));
 
-        var (created, item) = await Post(admin, "degrees", new { name = "Bachelor of IT", creditsToBeCompleted = 120.50m });
+        var (created, item) = await Post(admin, "degrees", new { name = "Bachelor of IT", creditsToBeCompleted = 120.50m, minimumCgpaForCompletion = 2.50m });
         Assert.Equal(HttpStatusCode.Created, created);
         Assert.Equal(120.50m, item.GetProperty("creditsToBeCompleted").GetDecimal());
         var id = item.GetProperty("id").GetGuid();
@@ -608,7 +609,7 @@ public sealed class CatalogCrudTests : ConfigurationTestBase
         Assert.Equal(HttpStatusCode.OK, read);
         Assert.Equal(120.50m, loaded.GetProperty("creditsToBeCompleted").GetDecimal());
 
-        var (updated, changed) = await Put(admin, "degrees", id, new { name = "Bachelor of IT", creditsToBeCompleted = 40.25m });
+        var (updated, changed) = await Put(admin, "degrees", id, new { name = "Bachelor of IT", creditsToBeCompleted = 40.25m, minimumCgpaForCompletion = 2.50m });
         Assert.Equal(HttpStatusCode.OK, updated);
         Assert.Equal(40.25m, changed.GetProperty("creditsToBeCompleted").GetDecimal());
     }
@@ -620,13 +621,82 @@ public sealed class CatalogCrudTests : ConfigurationTestBase
     public async Task A_degree_rejects_non_positive_or_over_precision_credit_totals_without_writes(double credits)
     {
         using var admin = await AdminAsync();
-        await CreateAsync(admin, "degrees", new { name = "Existing Degree", creditsToBeCompleted = 120m });
+        await CreateAsync(admin, "degrees", new { name = "Existing Degree", creditsToBeCompleted = 120m, minimumCgpaForCompletion = 2.50m });
 
         var (status, problem) = await Post(admin, "degrees", new { name = $"Invalid Degree {credits}", creditsToBeCompleted = credits });
 
         Assert.Equal(HttpStatusCode.BadRequest, status);
         Assert.True(HasError(problem, "creditsToBeCompleted"));
         Assert.Single((await Get(admin, "degrees", "?status=all")).Body.GetProperty("items").EnumerateArray());
+    }
+
+    [Fact]
+    public async Task A_degree_requires_a_minimum_cgpa_for_completion_and_round_trips_it()
+    {
+        using var admin = await AdminAsync();
+
+        var (missing, missingProblem) = await Post(admin, "degrees", new { name = "No CGPA", creditsToBeCompleted = 120m });
+        Assert.Equal(HttpStatusCode.BadRequest, missing);
+        Assert.Equal("Enter the minimum CGPA for completion.", FirstError(missingProblem, "minimumCgpaForCompletion"));
+
+        var (created, item) = await Post(admin, "degrees", new { name = "EMIT", creditsToBeCompleted = 48m, minimumCgpaForCompletion = 2.75m });
+        Assert.Equal(HttpStatusCode.Created, created);
+        Assert.Equal(2.75m, item.GetProperty("minimumCgpaForCompletion").GetDecimal());
+        var id = item.GetProperty("id").GetGuid();
+        Assert.Equal(2.75m, (await Get(admin, $"degrees/{id}")).Body.GetProperty("minimumCgpaForCompletion").GetDecimal());
+
+        var (updated, changed) = await Put(admin, "degrees", id, new { name = "EMIT", creditsToBeCompleted = 48m, minimumCgpaForCompletion = 4.00m });
+        Assert.Equal(HttpStatusCode.OK, updated);
+        Assert.Equal(4.00m, changed.GetProperty("minimumCgpaForCompletion").GetDecimal());
+
+        // An update must state it too: leaving it out does not keep the old value.
+        var (omitted, omittedProblem) = await Put(admin, "degrees", id, new { name = "EMIT", creditsToBeCompleted = 48m });
+        Assert.Equal(HttpStatusCode.BadRequest, omitted);
+        Assert.True(HasError(omittedProblem, "minimumCgpaForCompletion"));
+        Assert.Equal(4.00m, (await Get(admin, $"degrees/{id}")).Body.GetProperty("minimumCgpaForCompletion").GetDecimal());
+    }
+
+    [Theory]
+    [InlineData("0")]
+    [InlineData("-1")]
+    [InlineData("4.01")]
+    [InlineData("5")]
+    [InlineData("2.555")]
+    public async Task A_degree_rejects_a_minimum_cgpa_outside_the_four_point_scale_without_writes(string cgpa)
+    {
+        using var admin = await AdminAsync();
+
+        var (status, problem) = await Post(admin, "degrees", new { name = $"Bad CGPA {cgpa}", creditsToBeCompleted = 120m, minimumCgpaForCompletion = decimal.Parse(cgpa, System.Globalization.CultureInfo.InvariantCulture) });
+
+        Assert.Equal(HttpStatusCode.BadRequest, status);
+        Assert.Contains("at most 4.00", FirstError(problem, "minimumCgpaForCompletion"));
+        Assert.Empty((await Get(admin, "degrees", "?status=all")).Body.GetProperty("items").EnumerateArray());
+    }
+
+    [Theory]
+    [InlineData("0.01")]
+    [InlineData("4")]
+    public async Task A_degree_accepts_the_ends_of_the_cgpa_range(string cgpa)
+    {
+        using var admin = await AdminAsync();
+        var value = decimal.Parse(cgpa, System.Globalization.CultureInfo.InvariantCulture);
+
+        var (status, item) = await Post(admin, "degrees", new { name = $"Edge {cgpa}", creditsToBeCompleted = 120m, minimumCgpaForCompletion = value });
+
+        Assert.Equal(HttpStatusCode.Created, status);
+        Assert.Equal(value, item.GetProperty("minimumCgpaForCompletion").GetDecimal());
+    }
+
+    [Fact]
+    public async Task A_non_degree_catalog_rejects_a_minimum_cgpa()
+    {
+        using var admin = await AdminAsync();
+
+        var (status, problem) = await Post(admin, "semesters", new { name = "Spring", minimumCgpaForCompletion = 2.50m });
+
+        Assert.Equal(HttpStatusCode.BadRequest, status);
+        Assert.True(HasError(problem, "minimumCgpaForCompletion"));
+        Assert.False((await Get(admin, "semesters", "?status=all")).Body.GetProperty("items").EnumerateArray().Any());
     }
 
     [Fact]

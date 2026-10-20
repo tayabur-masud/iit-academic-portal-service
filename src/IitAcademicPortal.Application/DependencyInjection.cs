@@ -33,6 +33,7 @@ public static class DependencyInjection
         services.AddScoped<AuditReviewService>();
         services.AddSingleton<ConfigurationResources>();
         services.AddScoped<CatalogService>();
+        services.AddScoped<GradeScaleService>();
         services.AddScoped<GeographyImportService>();
         services.AddScoped<TeacherProvisioningService>();
         services.AddScoped<TeacherProfileService>();

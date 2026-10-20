@@ -43,6 +43,7 @@ public abstract class StudentTestBase : UserManagementTestBase
         {
             var degree = Named(new Degree(), name, active);
             degree.SetCreditsToBeCompleted(credits);
+            degree.SetMinimumCgpaForCompletion(2.50m);
             return degree;
         }
 

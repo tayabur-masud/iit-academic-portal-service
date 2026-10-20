@@ -17,9 +17,10 @@ public static class ConfigurationAuditEventDefinitions
     /// <summary>The fields a configuration event may record, across every resource.</summary>
     public static readonly string[] ApprovedFields =
     [
-        "name", "code", "type", "address", "isActive", "creditsToBeCompleted",
+        "name", "code", "type", "address", "isActive", "creditsToBeCompleted", "minimumCgpaForCompletion",
         "degreeId", "startingSemesterId", "academicSessionId", "divisionId", "districtId",
         "creditHours", "theoryCreditHours", "labCreditHours", "prerequisiteCourseId",
+        "letterGrade", "marksLowerBound", "marksUpperBound", "upperBoundInclusive", "numericGrade", "comment",
     ];
 
     /// <summary>A bulk geography import: its metadata carries the source citation, version, and per-level counts.</summary>

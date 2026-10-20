@@ -35,6 +35,7 @@ public sealed class ConfigurationResources
                 (division, c, ct) => c.Store.ExistsAsync<District>(d => d.DivisionId == division.Id, ct)),
             new DistrictResource(),
             new UpazilaResource(),
+            new CityCorporationResource(),
         ];
         byRoute = all.ToDictionary(r => r.Route, StringComparer.Ordinal);
     }

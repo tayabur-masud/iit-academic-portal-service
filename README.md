@@ -408,12 +408,13 @@ the session's **active** Admin role (401 anonymous, 403 any other active role), 
 | Resource | Route | Fields besides `name` and `isActive` |
 |---|---|---|
 | Educational institutions | `institutions` | `type` (School, College, University), optional `code`, optional `address` |
-| Education boards, degrees, designations | `education-boards`, `degrees`, `designations` | optional `code` |
+| Education boards, degrees, designations | `education-boards`, `degrees`, `designations` | optional `code`; a degree also requires `creditsToBeCompleted` (positive, two decimals) and `minimumCgpaForCompletion` (greater than 0, at most 4.00, two decimals) |
 | Halls (university residential halls) | `halls` | optional `code`, optional `address` |
 | Education groups, examination types, semesters, academic sessions | `education-groups`, `examination-types`, `semesters`, `academic-sessions` | none |
 | Batches | `batches` | `degreeId`, `startingSemesterId`, `academicSessionId`, all required |
+| Grades | `grades` | One global scale: `letterGrade`, `marksLowerBound` (inclusive), `marksUpperBound` (exclusive, except the band ending at 100 with `upperBoundInclusive`), `numericGrade` (0.00-4.00), `comment`. Read with `GET`; the only write is `PUT grades/scale` with the complete scale (bands with an id are updated, without one created, left out deleted), and the active bands must cover 0-100% exactly once. Single-band writes answer 405. Seeded with ten bands by the migration |
 | Courses | `courses` | required `code` (unique across all courses; names may repeat), `creditHours`, optional `theoryCreditHours` and `labCreditHours`, `type` (Mandatory, Elective), `degreeId`, optional `prerequisiteCourseId` (an active course of the same degree, no cycles). No `DELETE` (405): deactivate instead, which is refused (409) while an active course depends on it. Contract: `specs/008-course-management/contracts/courses-api.md` |
-| Divisions, districts, upazilas | `geography/divisions`, `geography/districts`, `geography/upazilas` | `divisionId` (district), `districtId` (upazila); no codes |
+| Divisions, districts, upazilas, city corporations | `geography/divisions`, `geography/districts`, `geography/upazilas`, `geography/city-corporations` | `divisionId` (district), `districtId` (upazila, city corporation); no codes. A city corporation is a district child alongside its upazilas |
 
 Each collection has `GET` (list), `POST` (create), and `GET`, `PUT`, `DELETE` on `/{id}`. A `PUT` takes the full
 writable record; set `isActive: false` to deactivate.
@@ -422,7 +423,7 @@ writable record; set `isActive: false` to deactivate.
   `"Science"`); the name as typed (trimmed) is what is stored and shown. Normalized values are never returned.
 - **Uniqueness**: a catalog name is unique within its catalog (the same name may exist in different catalogs);
   non-empty codes are unique within their catalog, and a blank code counts as no code; a batch name is unique within
-  its degree whatever its session; district names are unique within a division and upazila names within a district.
+  its degree whatever its session; district names are unique within a division, and upazila names and city corporation names each within a district.
   PostgreSQL unique indexes are the last guard when two requests race.
 - **References**: a new or changed reference must exist and be active (`400`, keyed by field). An unchanged reference to
   a record that was deactivated later is accepted, so the existing link can still be edited.
@@ -434,8 +435,8 @@ writable record; set `isActive: false` to deactivate.
   name and code can be used again, because the unique indexes cover only live rows. A deactivated record that refers to another still
   blocks that delete; a deleted one does not. Every foreign key is still `RESTRICT`, so the database refuses a physical delete of a
   referenced row.
-- **Lists** take `search`, `status` (`active` default, `inactive`, `all`), `pageSize` (25, up to 100), and, for districts and
-  upazilas, `divisionId` or `districtId`; for courses, `degreeId`; for courses and institutions, `type` (case-insensitive; an unknown
+- **Lists** take `search`, `status` (`active` default, `inactive`, `all`), `pageSize` (25, up to 100), and, for districts,
+  upazilas, and city corporations, `divisionId` or `districtId`; for courses, `degreeId`; for courses and institutions, `type` (case-insensitive; an unknown
   type, or `type` on another catalog, is a field-keyed 400). Page them by `page` (1-based; the response then adds `page`, `totalCount`, and
   `totalPages`, which the frontend uses) or by `cursor` (no count, and the pages never shift while new records arrive). The
   two cannot be combined. Lists return `{ items, nextCursor }` plus the totals in page mode. They are ordered by normalized name then
@@ -498,9 +499,12 @@ The SQL scripts above are the repeatable way to load the geography the owner sup
 `specs/003-configuration/contracts/geographic-seed.schema.json`) with a source citation and version. In Swagger,
 signed in as an Admin:
 
-1. `POST /api/admin/configuration/geography/import/validate` reports the source, per-level counts, `targetEmpty`, and
+Each district may carry an optional `cityCorporations` list of names. No City Corporation seed exists yet; the owner has not supplied
+one.
+
+1. `POST /api/admin/configuration/geography/import/validate` reports the source, per-level counts (including `cityCorporations`), `targetEmpty`, and
    every problem with its path (`400` with the report if the document is invalid). It writes nothing.
-2. `POST /api/admin/configuration/geography/import` validates again and, only if the three geography tables are empty,
+2. `POST /api/admin/configuration/geography/import` validates again and, only if the four geography tables are empty,
    adds the whole hierarchy and one `configuration.geography.imported` event in one transaction. A non-empty target
    returns `409`; existing rows are never overwritten.
 

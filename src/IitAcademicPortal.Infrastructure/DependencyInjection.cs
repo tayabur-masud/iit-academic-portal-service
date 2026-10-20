@@ -111,6 +111,7 @@ public static class DependencyInjection
     {
         services.AddScoped<IAuditEventStore, AuditEventStore>();
         services.AddScoped<IConfigurationStore, ConfigurationStore>();
+        services.AddScoped<IGradeScaleStore, GradeScaleStore>();
         services.AddScoped<ITeacherStore, TeacherStore>();
         services.AddScoped<IUserAccountStore, UserAccountStore>();
         services.AddScoped<IStudentStore, StudentStore>();

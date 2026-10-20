@@ -393,6 +393,7 @@ public abstract class ConfigurationResource<T>(string route, string displayName,
         Reject(!string.IsNullOrWhiteSpace(input.Type), ConfigurationFields.Type, "type");
         Reject(!string.IsNullOrWhiteSpace(input.Address), ConfigurationFields.Address, "address");
         Reject(input.CreditsToBeCompleted.HasValue, ConfigurationFields.Credits, "creditsToBeCompleted");
+        Reject(input.MinimumCgpaForCompletion.HasValue, ConfigurationFields.Credits, "minimumCgpaForCompletion");
         Reject(input.CreditHours.HasValue, ConfigurationFields.CourseCredits, "creditHours");
         Reject(input.TheoryCreditHours.HasValue, ConfigurationFields.CourseCredits, "theoryCreditHours");
         Reject(input.LabCreditHours.HasValue, ConfigurationFields.CourseCredits, "labCreditHours");
@@ -487,6 +488,7 @@ public abstract class ConfigurationResource<T>(string route, string displayName,
             IsActive = entity.IsActive,
             Code = (entity as ICodedRecord)?.Code,
             CreditsToBeCompleted = (entity as Degree)?.CreditsToBeCompleted,
+            MinimumCgpaForCompletion = (entity as Degree)?.MinimumCgpaForCompletion,
             CreatedAtUtc = entity.CreatedAtUtc,
             CreatedByUserId = entity.CreatedByUserId,
             LastModifiedAtUtc = entity.LastModifiedAtUtc,

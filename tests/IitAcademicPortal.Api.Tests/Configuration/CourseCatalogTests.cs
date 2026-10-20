@@ -15,7 +15,7 @@ public sealed class CourseCatalogTests : ConfigurationTestBase
     private const string Courses = "courses";
 
     private async Task<Guid> DegreeAsync(Infrastructure.PortalClient admin, string name) =>
-        await CreateAsync(admin, "degrees", new { name, creditsToBeCompleted = 120m });
+        await CreateAsync(admin, "degrees", new { name, creditsToBeCompleted = 120m, minimumCgpaForCompletion = 2.50m });
 
     private static Dictionary<string, object?> Course(
         Guid degreeId, string code, string name = "Course", decimal? creditHours = 3m, decimal? theory = null, decimal? lab = null,

@@ -275,6 +275,68 @@ namespace IitAcademicPortal.Infrastructure.Persistence.Migrations
                     b.ToTable("Batches", (string)null);
                 });
 
+            modelBuilder.Entity("IitAcademicPortal.Domain.Configuration.CityCorporation", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<string>("CreatedByUserId")
+                        .HasMaxLength(450)
+                        .HasColumnType("character varying(450)");
+
+                    b.Property<DateTime?>("DeletedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("DeletedByUserId")
+                        .HasMaxLength(450)
+                        .HasColumnType("character varying(450)");
+
+                    b.Property<Guid>("DistrictId")
+                        .HasColumnType("uuid");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("IsDeleted")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
+
+                    b.Property<DateTime>("LastModifiedAtUtc")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<string>("LastModifiedByUserId")
+                        .HasMaxLength(450)
+                        .HasColumnType("character varying(450)");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("NormalizedName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("NormalizedName");
+
+                    b.HasIndex("DistrictId", "NormalizedName")
+                        .IsUnique()
+                        .HasFilter("\"IsDeleted\" = false");
+
+                    b.ToTable("CityCorporations", (string)null);
+                });
+
             modelBuilder.Entity("IitAcademicPortal.Domain.Configuration.Course", b =>
                 {
                     b.Property<Guid>("Id")
@@ -426,6 +488,10 @@ namespace IitAcademicPortal.Infrastructure.Persistence.Migrations
                         .HasMaxLength(450)
                         .HasColumnType("character varying(450)");
 
+                    b.Property<decimal>("MinimumCgpaForCompletion")
+                        .HasPrecision(3, 2)
+                        .HasColumnType("numeric(3,2)");
+
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasMaxLength(200)
@@ -453,6 +519,8 @@ namespace IitAcademicPortal.Infrastructure.Persistence.Migrations
                     b.ToTable("Degrees", null, t =>
                         {
                             t.HasCheckConstraint("CK_Degrees_CreditsToBeCompleted_Positive", "\"CreditsToBeCompleted\" > 0");
+
+                            t.HasCheckConstraint("CK_Degrees_MinimumCgpaForCompletion_Range", "\"MinimumCgpaForCompletion\" > 0 AND \"MinimumCgpaForCompletion\" <= 4");
                         });
                 });
 
@@ -903,6 +971,90 @@ namespace IitAcademicPortal.Infrastructure.Persistence.Migrations
                         .HasFilter("\"IsDeleted\" = false");
 
                     b.ToTable("ExaminationTypes", (string)null);
+                });
+
+            modelBuilder.Entity("IitAcademicPortal.Domain.Configuration.Grade", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Comment")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<string>("CreatedByUserId")
+                        .HasMaxLength(450)
+                        .HasColumnType("character varying(450)");
+
+                    b.Property<DateTime?>("DeletedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("DeletedByUserId")
+                        .HasMaxLength(450)
+                        .HasColumnType("character varying(450)");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("IsDeleted")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
+
+                    b.Property<DateTime>("LastModifiedAtUtc")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<string>("LastModifiedByUserId")
+                        .HasMaxLength(450)
+                        .HasColumnType("character varying(450)");
+
+                    b.Property<decimal>("MarksLowerBound")
+                        .HasColumnType("numeric");
+
+                    b.Property<decimal>("MarksUpperBound")
+                        .HasColumnType("numeric");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("NormalizedName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<decimal>("NumericGrade")
+                        .HasPrecision(3, 2)
+                        .HasColumnType("numeric(3,2)");
+
+                    b.Property<bool>("UpperBoundInclusive")
+                        .HasColumnType("boolean");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("NormalizedName")
+                        .IsUnique()
+                        .HasFilter("\"IsDeleted\" = false");
+
+                    b.ToTable("Grades", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_Grades_Comment_NotBlank", "btrim(\"Comment\") <> ''");
+
+                            t.HasCheckConstraint("CK_Grades_Marks_Range", "\"MarksLowerBound\" >= 0 AND \"MarksUpperBound\" <= 100 AND \"MarksLowerBound\" < \"MarksUpperBound\"");
+
+                            t.HasCheckConstraint("CK_Grades_NumericGrade_Range", "\"NumericGrade\" >= 0 AND \"NumericGrade\" <= 4");
+
+                            t.HasCheckConstraint("CK_Grades_UpperBoundInclusive_At100", "NOT \"UpperBoundInclusive\" OR \"MarksUpperBound\" = 100");
+                        });
                 });
 
             modelBuilder.Entity("IitAcademicPortal.Domain.Configuration.Hall", b =>
@@ -2313,6 +2465,15 @@ namespace IitAcademicPortal.Infrastructure.Persistence.Migrations
                     b.HasOne("IitAcademicPortal.Domain.Configuration.Semester", null)
                         .WithMany()
                         .HasForeignKey("StartingSemesterId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("IitAcademicPortal.Domain.Configuration.CityCorporation", b =>
+                {
+                    b.HasOne("IitAcademicPortal.Domain.Configuration.District", null)
+                        .WithMany()
+                        .HasForeignKey("DistrictId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
                 });

@@ -21,6 +21,8 @@ public sealed record ConfigurationInput
 
     public decimal? CreditsToBeCompleted { get; init; }
 
+    public decimal? MinimumCgpaForCompletion { get; init; }
+
     public decimal? CreditHours { get; init; }
 
     public decimal? TheoryCreditHours { get; init; }
@@ -58,6 +60,8 @@ public sealed record ConfigurationItem
     public string? Address { get; init; }
 
     public decimal? CreditsToBeCompleted { get; init; }
+
+    public decimal? MinimumCgpaForCompletion { get; init; }
 
     public decimal? CreditHours { get; init; }
 

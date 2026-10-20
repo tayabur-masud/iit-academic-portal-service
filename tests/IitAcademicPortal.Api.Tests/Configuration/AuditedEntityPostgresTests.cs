@@ -14,7 +14,7 @@ public sealed class AuditedEntityPostgresTests(PostgresDatabaseFixture fixture) 
     private static readonly string[] Tables =
     [
         "EducationalInstitutions", "EducationBoards", "EducationGroups", "ExaminationTypes", "Degrees", "Semesters", "AcademicSessions",
-        "Designations", "Halls", "Batches", "Divisions", "Districts", "Upazilas",
+        "Designations", "Halls", "Batches", "Divisions", "Districts", "Upazilas", "CityCorporations", "Grades",
     ];
 
     private PostgresTestDatabase Db => fixture.Database!;

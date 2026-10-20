@@ -13,6 +13,7 @@ public sealed record GeographyReport(
     int Divisions,
     int Districts,
     int Upazilas,
+    int CityCorporations,
     bool TargetEmpty,
     IReadOnlyList<GeographyIssue> Issues)
 {
@@ -28,15 +29,18 @@ public sealed record GeographySeed(
 
 public sealed record SeedDivision(string Name, IReadOnlyList<SeedDistrict> Districts);
 
-public sealed record SeedDistrict(string Name, IReadOnlyList<SeedUpazila> Upazilas);
+public sealed record SeedDistrict(string Name, IReadOnlyList<SeedUpazila> Upazilas, IReadOnlyList<SeedCityCorporation> CityCorporations);
 
 public sealed record SeedUpazila(string Name);
+
+public sealed record SeedCityCorporation(string Name);
 
 /// <summary>
 /// Validates a geography seed document in full before anything is written. It enforces the structure in
 /// <c>contracts/geographic-seed.schema.json</c> (required source citation and version, nested names only, no codes or
 /// other fields) and the semantic rules: normalized names are unique among Divisions, within each Division's
-/// Districts, and within each District's Upazilas. Every problem is reported with its path.
+/// Districts, within each District's Upazilas, and within each District's optional City Corporations. Every problem is
+/// reported with its path.
 /// </summary>
 public static class GeographySeedValidator
 {
@@ -56,7 +60,7 @@ public static class GeographySeedValidator
         string? citation = null;
         string? version = null;
         var divisions = new List<SeedDivision>();
-        int districtCount = 0, upazilaCount = 0;
+        int districtCount = 0, upazilaCount = 0, cityCorporationCount = 0;
 
         if (document.ValueKind != JsonValueKind.Object)
         {
@@ -114,13 +118,14 @@ public static class GeographySeedValidator
                     {
                         var districtPath = $"{path}.districts[{i++}]";
                         var upazilas = new List<SeedUpazila>();
+                        var cityCorporations = new List<SeedCityCorporation>();
                         if (district.ValueKind != JsonValueKind.Object)
                         {
                             Issue(districtPath, "A district must be an object with a name and upazilas.");
                             continue;
                         }
 
-                        RejectUnknown(district, ["name", "upazilas"], districtPath, Issue);
+                        RejectUnknown(district, ["name", "upazilas", "cityCorporations"], districtPath, Issue);
                         var districtName = Name(district, $"{districtPath}.name", seenDistricts, "A district with this name appears more than once in its division.", Issue);
 
                         if (!district.TryGetProperty("upazilas", out var upazilaList) || upazilaList.ValueKind != JsonValueKind.Array)
@@ -150,10 +155,41 @@ public static class GeographySeedValidator
                             }
                         }
 
+                        // Optional: a District the source lists no City Corporations for simply omits the list.
+                        if (district.TryGetProperty("cityCorporations", out var cityList))
+                        {
+                            if (cityList.ValueKind != JsonValueKind.Array)
+                            {
+                                Issue($"{districtPath}.cityCorporations", "City corporations must be a list.");
+                            }
+                            else
+                            {
+                                var seenCities = new HashSet<string>(StringComparer.Ordinal);
+                                var c = 0;
+                                foreach (var city in cityList.EnumerateArray())
+                                {
+                                    var cityPath = $"{districtPath}.cityCorporations[{c++}]";
+                                    if (city.ValueKind != JsonValueKind.Object)
+                                    {
+                                        Issue(cityPath, "A city corporation must be an object with a name.");
+                                        continue;
+                                    }
+
+                                    RejectUnknown(city, ["name"], cityPath, Issue);
+                                    var cityName = Name(city, $"{cityPath}.name", seenCities, "A city corporation with this name appears more than once in its district.", Issue);
+                                    cityCorporationCount++;
+                                    if (cityName is not null)
+                                    {
+                                        cityCorporations.Add(new SeedCityCorporation(cityName));
+                                    }
+                                }
+                            }
+                        }
+
                         districtCount++;
                         if (districtName is not null)
                         {
-                            districts.Add(new SeedDistrict(districtName, upazilas));
+                            districts.Add(new SeedDistrict(districtName, upazilas, cityCorporations));
                         }
                     }
                 }
@@ -170,7 +206,7 @@ public static class GeographySeedValidator
         return (valid ? new GeographySeed(citation!, version!, divisions) : null, report);
 
         GeographyReport Finish(bool isValid) => new(
-            isValid, citation, version, divisions.Count, districtCount, upazilaCount, targetEmpty, issues);
+            isValid, citation, version, divisions.Count, districtCount, upazilaCount, cityCorporationCount, targetEmpty, issues);
     }
 
     private static void RejectUnknown(JsonElement element, string[] allowed, string path, Action<string, string> issue)

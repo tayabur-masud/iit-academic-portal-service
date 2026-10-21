@@ -77,7 +77,7 @@ public sealed class StudentProvisioningTransactionTests : StudentTestBase
         var refs = await RefsAsync();
         using var admin = await AdminAsync();
         var form = Form(Unique("audited"), refs.Pgdit, refs.PgditBatch);
-        form["mailingAddress"] = new { details = "House 77, Secret Lane", upazilaId = refs.Upazila };
+        form["mailingAddress"] = new { details = "House 77, Secret Lane", districtId = refs.District, upazilaId = refs.Upazila };
 
         var admission = await AdmitAsync(admin, form);
 

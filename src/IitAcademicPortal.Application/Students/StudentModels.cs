@@ -3,8 +3,11 @@ using IitAcademicPortal.Domain.Students;
 
 namespace IitAcademicPortal.Application.Students;
 
-/// <summary>A mailing or permanent address as entered: free-text details, an Upazila, and an optional cell number.</summary>
-public sealed record StudentAddressInput(string? Details, Guid? UpazilaId, string? CellNumber);
+/// <summary>
+/// A mailing or permanent address as entered: free-text details, the District the locality was chosen from (validation context only,
+/// never stored), exactly one locality (an Upazila or a City Corporation), and an optional cell number.
+/// </summary>
+public sealed record StudentAddressInput(string? Details, Guid? DistrictId, Guid? UpazilaId, Guid? CityCorporationId, string? CellNumber);
 
 /// <summary>
 /// One prior-education row as entered. <see cref="Id"/> identifies an existing row to keep; absent means a new row. The catalog IDs are
@@ -64,12 +67,17 @@ public sealed record StudentAdmissionInput(
     string? RegistrationNumber,
     IReadOnlyList<AcademicHistoryInput>? AcademicHistory);
 
-/// <summary>An address with its geographic path resolved from the Upazila, so District and Division can never disagree with it.</summary>
+/// <summary>
+/// An address with its geographic path resolved from its locality (an Upazila or a City Corporation; the other is null), so District and
+/// Division can never disagree with it.
+/// </summary>
 public sealed record StudentAddress(
     string? Details,
     string? CellNumber,
     Guid? UpazilaId,
     string? UpazilaName,
+    Guid? CityCorporationId,
+    string? CityCorporationName,
     Guid? DistrictId,
     string? DistrictName,
     Guid? DivisionId,

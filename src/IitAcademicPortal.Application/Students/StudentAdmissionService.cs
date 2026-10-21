@@ -295,8 +295,8 @@ public sealed class StudentAdmissionService(
             errors.Add("dateOfBirth", "The date of birth cannot be in the future.");
         }
 
-        await ValidateAddressAsync("mailingAddress", input.MailingAddress, profile?.MailingUpazilaId, errors, cancellationToken);
-        await ValidateAddressAsync("permanentAddress", input.PermanentAddress, profile?.PermanentUpazilaId, errors, cancellationToken);
+        await ValidateAddressAsync("mailingAddress", input.MailingAddress, profile?.MailingUpazilaId, profile?.MailingCityCorporationId, errors, cancellationToken);
+        await ValidateAddressAsync("permanentAddress", input.PermanentAddress, profile?.PermanentUpazilaId, profile?.PermanentCityCorporationId, errors, cancellationToken);
 
         errors.Required("admissionSerialNumber", input.AdmissionSerialNumber, StudentAdmissionRecord.MaxIdentifierLength, "Enter the admission test serial number.");
         errors.Required("admissionExamRoll", input.AdmissionExamRoll, StudentAdmissionRecord.MaxIdentifierLength, "Enter the admission test roll number (Exam Roll).");
@@ -337,22 +337,55 @@ public sealed class StudentAdmissionService(
         await ValidateHistoryAsync(input.AcademicHistory, profile, errors, cancellationToken);
     }
 
-    private async Task ValidateAddressAsync(string key, StudentAddressInput? address, Guid? current, StudentErrors errors, CancellationToken cancellationToken)
+    /// <summary>
+    /// A supplied address needs details, the District it was chosen from, and exactly one locality: an Upazila or a City Corporation of
+    /// that District. A newly chosen locality must be active; the one the address already has may stay even if deactivated since.
+    /// </summary>
+    private async Task ValidateAddressAsync(
+        string key, StudentAddressInput? address, Guid? currentUpazila, Guid? currentCity, StudentErrors errors, CancellationToken cancellationToken)
     {
-        if (address is null || (Clean(address.Details) is null && address.UpazilaId is null && Clean(address.CellNumber) is null))
+        if (address is null || (Clean(address.Details) is null && address.DistrictId is null && address.UpazilaId is null
+            && address.CityCorporationId is null && Clean(address.CellNumber) is null))
         {
             return;
         }
 
         errors.Required($"{key}.details", address.Details, StudentProfile.MaxAddressLength, "Enter the address details (house, road, area).");
         errors.Optional($"{key}.cellNumber", address.CellNumber, StudentProfile.MaxPhoneLength);
-        if (address.UpazilaId is not { } upazilaId)
+        if (address.DistrictId is null)
         {
-            errors.Add($"{key}.upazilaId", "Select the division, district, and upazila.");
+            errors.Add($"{key}.districtId", "Select the division and district.");
         }
-        else if (await store.FindUpazilaAsync(upazilaId, cancellationToken) is not { } upazila || (!upazila.IsActive && upazilaId != current))
+
+        if (address.UpazilaId is null && address.CityCorporationId is null)
         {
-            errors.Add($"{key}.upazilaId", "Select an active upazila.");
+            errors.Add($"{key}.upazilaId", "Select an upazila or a city corporation.");
+            return;
+        }
+
+        if (address.UpazilaId is not null && address.CityCorporationId is not null)
+        {
+            errors.Add($"{key}.cityCorporationId", "Select either an upazila or a city corporation, not both.");
+            return;
+        }
+
+        var (field, label, id, current) = address.UpazilaId is { } upazilaId
+            ? ("upazilaId", "upazila", upazilaId, currentUpazila)
+            : ("cityCorporationId", "city corporation", address.CityCorporationId!.Value, currentCity);
+        var locality = field == "upazilaId"
+            ? await store.FindUpazilaAsync(id, cancellationToken)
+            : await store.FindCityCorporationAsync(id, cancellationToken);
+        if (locality is null)
+        {
+            errors.Add($"{key}.{field}", $"The selected {label} does not exist.");
+        }
+        else if (address.DistrictId is { } district && locality.ParentId != district)
+        {
+            errors.Add($"{key}.{field}", $"The selected {label} is not in the selected district.");
+        }
+        else if (!locality.IsActive && id != current)
+        {
+            errors.Add($"{key}.{field}", $"Select an active {label}.");
         }
     }
 
@@ -499,15 +532,11 @@ public sealed class StudentAdmissionService(
         Set("applicantMobile", profile.ApplicantMobile, Clean(input.ApplicantMobile), v => profile.ApplicantMobile = v ?? string.Empty);
 
         var mailing = AddressParts(input.MailingAddress);
-        Set("mailingAddress", AddressKey(profile.MailingAddressDetails, profile.MailingUpazilaId, profile.MailingCellNumber), AddressKey(mailing), _ =>
-        {
-            (profile.MailingAddressDetails, profile.MailingUpazilaId, profile.MailingCellNumber) = mailing;
-        });
+        Set("mailingAddress", AddressKey(profile.MailingAddressDetails, profile.MailingUpazilaId, profile.MailingCityCorporationId, profile.MailingCellNumber),
+            AddressKey(mailing), _ => profile.SetMailingAddress(mailing.Details, mailing.UpazilaId, mailing.CityCorporationId, mailing.Cell));
         var permanent = AddressParts(input.PermanentAddress);
-        Set("permanentAddress", AddressKey(profile.PermanentAddressDetails, profile.PermanentUpazilaId, profile.PermanentCellNumber), AddressKey(permanent), _ =>
-        {
-            (profile.PermanentAddressDetails, profile.PermanentUpazilaId, profile.PermanentCellNumber) = permanent;
-        });
+        Set("permanentAddress", AddressKey(profile.PermanentAddressDetails, profile.PermanentUpazilaId, profile.PermanentCityCorporationId, profile.PermanentCellNumber),
+            AddressKey(permanent), _ => profile.SetPermanentAddress(permanent.Details, permanent.UpazilaId, permanent.CityCorporationId, permanent.Cell));
 
         var guardianBefore = string.Join('|', profile.GuardianName, profile.GuardianRelationship, profile.GuardianAddress, profile.GuardianCellNumber);
         var guardianAfter = string.Join('|', Clean(input.GuardianName), Clean(input.GuardianRelationship), Clean(input.GuardianAddress), Clean(input.GuardianCellNumber));
@@ -713,13 +742,15 @@ public sealed class StudentAdmissionService(
     private static (string? Display, string? Normalized) RegistrationNumber(string? value) =>
         (NameNormalizer.DisplayCode(value), NameNormalizer.NormalizeCode(value));
 
-    private static (string? Details, Guid? UpazilaId, string? Cell) AddressParts(StudentAddressInput? address) =>
-        address is null ? (null, null, null) : (Clean(address.Details), address.UpazilaId, Clean(address.CellNumber));
+    // Only the locality is stored: the District sent with it is validation context, and the Division is derived.
+    private static (string? Details, Guid? UpazilaId, Guid? CityCorporationId, string? Cell) AddressParts(StudentAddressInput? address) =>
+        address is null ? (null, null, null, null) : (Clean(address.Details), address.UpazilaId, address.CityCorporationId, Clean(address.CellNumber));
 
-    private static string AddressKey((string? Details, Guid? UpazilaId, string? Cell) address) =>
-        AddressKey(address.Details, address.UpazilaId, address.Cell);
+    private static string AddressKey((string? Details, Guid? UpazilaId, Guid? CityCorporationId, string? Cell) address) =>
+        AddressKey(address.Details, address.UpazilaId, address.CityCorporationId, address.Cell);
 
-    private static string AddressKey(string? details, Guid? upazilaId, string? cell) => string.Join('|', details, upazilaId, cell);
+    private static string AddressKey(string? details, Guid? upazilaId, Guid? cityCorporationId, string? cell) =>
+        string.Join('|', details, upazilaId, cityCorporationId, cell);
 
     internal static string? Clean(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 }

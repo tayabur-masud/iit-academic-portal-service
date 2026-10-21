@@ -220,9 +220,19 @@ public partial class PortalDbContext(DbContextOptions<PortalDbContext> options) 
             profile.HasIndex(p => p.UserId).IsUnique();
             profile.HasIndex(p => p.MailingUpazilaId);
             profile.HasIndex(p => p.PermanentUpazilaId);
+            profile.HasIndex(p => p.MailingCityCorporationId);
+            profile.HasIndex(p => p.PermanentCityCorporationId);
             profile.HasOne<PortalUser>().WithMany().HasForeignKey(p => p.UserId).OnDelete(DeleteBehavior.Restrict);
             profile.HasOne<Upazila>().WithMany().HasForeignKey(p => p.MailingUpazilaId).OnDelete(DeleteBehavior.Restrict);
             profile.HasOne<Upazila>().WithMany().HasForeignKey(p => p.PermanentUpazilaId).OnDelete(DeleteBehavior.Restrict);
+            profile.HasOne<CityCorporation>().WithMany().HasForeignKey(p => p.MailingCityCorporationId).OnDelete(DeleteBehavior.Restrict);
+            profile.HasOne<CityCorporation>().WithMany().HasForeignKey(p => p.PermanentCityCorporationId).OnDelete(DeleteBehavior.Restrict);
+            // An address has one locality: an Upazila or a City Corporation, never both.
+            profile.ToTable(t =>
+            {
+                t.HasCheckConstraint("CK_StudentProfiles_MailingLocality_AtMostOne", "\"MailingUpazilaId\" IS NULL OR \"MailingCityCorporationId\" IS NULL");
+                t.HasCheckConstraint("CK_StudentProfiles_PermanentLocality_AtMostOne", "\"PermanentUpazilaId\" IS NULL OR \"PermanentCityCorporationId\" IS NULL");
+            });
             profile.HasMany(p => p.AcademicHistory).WithOne().HasForeignKey(h => h.StudentProfileId).OnDelete(DeleteBehavior.Cascade);
             profile.Navigation(p => p.AcademicHistory).UsePropertyAccessMode(PropertyAccessMode.Property);
         });

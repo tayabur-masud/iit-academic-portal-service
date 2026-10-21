@@ -6,7 +6,8 @@ namespace IitAcademicPortal.Application.Abstractions;
 
 /// <summary>A Configuration record a student refers to: whether it is live (not deleted) is implied by finding it at all.</summary>
 public sealed record StudentReference(
-    Guid Id, string Name, bool IsActive, Guid? ParentId = null, decimal? CreditsToBeCompleted = null, EducationalInstitutionType? InstitutionType = null);
+    Guid Id, string Name, bool IsActive, Guid? ParentId = null, decimal? CreditsToBeCompleted = null, EducationalInstitutionType? InstitutionType = null,
+    decimal? MinimumCgpaForCompletion = null);
 
 public enum StudentConflictKind
 {
@@ -48,6 +49,7 @@ public interface IStudentStore
     Task<bool> RegistrationNumberExistsAsync(string normalized, Guid exceptAdmissionId, CancellationToken cancellationToken);
 
     /// <summary>The live Degree with its credit requirement, or null when it does not exist or was deleted.</summary>
+    /// <summary>The live Degree with its required credits and minimum CGPA for completion, or null.</summary>
     Task<StudentReference?> FindDegreeAsync(Guid degreeId, CancellationToken cancellationToken);
 
     /// <summary>The live Batch with its Degree as <see cref="StudentReference.ParentId"/>, or null.</summary>
@@ -57,6 +59,9 @@ public interface IStudentStore
 
     /// <summary>The live Upazila with its District as <see cref="StudentReference.ParentId"/>, or null.</summary>
     Task<StudentReference?> FindUpazilaAsync(Guid upazilaId, CancellationToken cancellationToken);
+
+    /// <summary>The live City Corporation with its District as <see cref="StudentReference.ParentId"/>, or null.</summary>
+    Task<StudentReference?> FindCityCorporationAsync(Guid cityCorporationId, CancellationToken cancellationToken);
 
     /// <summary>The live educational institution with its type, or null.</summary>
     Task<StudentReference?> FindInstitutionAsync(Guid institutionId, CancellationToken cancellationToken);

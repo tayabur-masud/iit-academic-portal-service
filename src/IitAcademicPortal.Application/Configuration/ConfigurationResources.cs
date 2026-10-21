@@ -480,6 +480,9 @@ public sealed class CityCorporationResource()
         entity.DistrictId = await ValidateReferenceAsync<District>(
             input.DistrictId, entity.DistrictId, isNew, "districtId", "district", context, errors, cancellationToken);
 
+    protected override Task<bool> HasDependentsAsync(CityCorporation entity, ConfigurationContext context, CancellationToken cancellationToken) =>
+        context.Store.UsedByStudentsAsync<CityCorporation>(entity.Id, cancellationToken);
+
     protected override void Describe(CityCorporation entity, Dictionary<string, object?> values) => values["districtId"] = entity.DistrictId;
 
     protected override ConfigurationItem Project(CityCorporation entity, ConfigurationItem item) => item with { DistrictId = entity.DistrictId };

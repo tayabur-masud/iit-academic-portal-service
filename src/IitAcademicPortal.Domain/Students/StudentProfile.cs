@@ -3,7 +3,8 @@ namespace IitAcademicPortal.Domain.Students;
 /// <summary>
 /// The person-level Student record, linked one-to-one to a Student portal account. The account keeps the email, sign-in name, role,
 /// and credential state; the profile holds the shared personal and contact details from the paper admission form, separate mailing and
-/// permanent addresses (free-text details plus an Upazila, whose District and Division are derived), and the prior academic history.
+/// permanent addresses (free-text details plus exactly one locality, an Upazila or a City Corporation, whose District and Division are
+/// derived), and the prior academic history.
 /// One profile has one admission per program enrollment (<see cref="StudentAdmissionRecord"/>). A profile is never deleted.
 /// </summary>
 public sealed class StudentProfile : AuditedEntity
@@ -37,13 +38,50 @@ public sealed class StudentProfile : AuditedEntity
 
     public Guid? MailingUpazilaId { get; set; }
 
+    public Guid? MailingCityCorporationId { get; set; }
+
     public string? MailingCellNumber { get; set; }
 
     public string? PermanentAddressDetails { get; set; }
 
     public Guid? PermanentUpazilaId { get; set; }
 
+    public Guid? PermanentCityCorporationId { get; set; }
+
     public string? PermanentCellNumber { get; set; }
+
+    /// <summary>
+    /// Sets the mailing address. Exactly one locality reference is required when MailingAddressDetails is supplied, and the address
+    /// never stores both an Upazila and a City Corporation.
+    /// </summary>
+    public void SetMailingAddress(string? details, Guid? upazilaId, Guid? cityCorporationId, string? cellNumber)
+    {
+        RequireOneLocality(nameof(MailingAddressDetails), details, upazilaId, cityCorporationId);
+        (MailingAddressDetails, MailingUpazilaId, MailingCityCorporationId, MailingCellNumber) = (details, upazilaId, cityCorporationId, cellNumber);
+    }
+
+    /// <summary>
+    /// Sets the permanent address. Exactly one locality reference is required when PermanentAddressDetails is supplied, and the address
+    /// never stores both an Upazila and a City Corporation.
+    /// </summary>
+    public void SetPermanentAddress(string? details, Guid? upazilaId, Guid? cityCorporationId, string? cellNumber)
+    {
+        RequireOneLocality(nameof(PermanentAddressDetails), details, upazilaId, cityCorporationId);
+        (PermanentAddressDetails, PermanentUpazilaId, PermanentCityCorporationId, PermanentCellNumber) = (details, upazilaId, cityCorporationId, cellNumber);
+    }
+
+    private static void RequireOneLocality(string detailsName, string? details, Guid? upazilaId, Guid? cityCorporationId)
+    {
+        if (upazilaId is not null && cityCorporationId is not null)
+        {
+            throw new InvalidOperationException("An address cannot store both an Upazila and a City Corporation.");
+        }
+
+        if (details is not null && upazilaId is null && cityCorporationId is null)
+        {
+            throw new InvalidOperationException($"Exactly one locality reference is required when {detailsName} is supplied.");
+        }
+    }
 
     public string? GuardianName { get; set; }
 

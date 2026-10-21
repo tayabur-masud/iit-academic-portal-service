@@ -38,7 +38,7 @@ public sealed class StudentStore(PortalDbContext db) : IStudentStore
 
     public Task<StudentReference?> FindDegreeAsync(Guid degreeId, CancellationToken cancellationToken) =>
         db.Degrees.AsNoTracking().Where(d => d.Id == degreeId)
-            .Select(d => new StudentReference(d.Id, d.Name, d.IsActive, null, d.CreditsToBeCompleted, null))
+            .Select(d => new StudentReference(d.Id, d.Name, d.IsActive, null, d.CreditsToBeCompleted, null, d.MinimumCgpaForCompletion))
             .FirstOrDefaultAsync(cancellationToken);
 
     public Task<StudentReference?> FindBatchAsync(Guid batchId, CancellationToken cancellationToken) =>
@@ -54,6 +54,11 @@ public sealed class StudentStore(PortalDbContext db) : IStudentStore
     public Task<StudentReference?> FindUpazilaAsync(Guid upazilaId, CancellationToken cancellationToken) =>
         db.Upazilas.AsNoTracking().Where(u => u.Id == upazilaId)
             .Select(u => new StudentReference(u.Id, u.Name, u.IsActive, u.DistrictId, null, null))
+            .FirstOrDefaultAsync(cancellationToken);
+
+    public Task<StudentReference?> FindCityCorporationAsync(Guid cityCorporationId, CancellationToken cancellationToken) =>
+        db.CityCorporations.AsNoTracking().Where(c => c.Id == cityCorporationId)
+            .Select(c => new StudentReference(c.Id, c.Name, c.IsActive, c.DistrictId, null, null))
             .FirstOrDefaultAsync(cancellationToken);
 
     public Task<StudentReference?> FindInstitutionAsync(Guid institutionId, CancellationToken cancellationToken) =>
@@ -196,32 +201,44 @@ public sealed class StudentStore(PortalDbContext db) : IStudentStore
         return new StudentProfileDetail(
             profile.Id, profile.UserId, account.Email ?? string.Empty, account.AccountStatus, profile.ApplicantName, profile.FatherName,
             profile.MotherName, profile.DateOfBirth, profile.PlaceOfBirth, profile.MaritalStatus, profile.Nationality, profile.ApplicantMobile,
-            await AddressAsync(profile.MailingAddressDetails, profile.MailingCellNumber, profile.MailingUpazilaId, cancellationToken),
-            await AddressAsync(profile.PermanentAddressDetails, profile.PermanentCellNumber, profile.PermanentUpazilaId, cancellationToken),
+            await AddressAsync(profile.MailingAddressDetails, profile.MailingCellNumber, profile.MailingUpazilaId, profile.MailingCityCorporationId, cancellationToken),
+            await AddressAsync(profile.PermanentAddressDetails, profile.PermanentCellNumber, profile.PermanentUpazilaId, profile.PermanentCityCorporationId, cancellationToken),
             profile.GuardianName, profile.GuardianRelationship, profile.GuardianAddress, profile.GuardianCellNumber, history, admissions);
     }
 
-    // The District and Division always come from the Upazila, so the path can never disagree with it. The filters are lifted for the
-    // whole query so an address keeps its path even if a record were deleted (deleting one in use is refused anyway).
-    private async Task<StudentAddress?> AddressAsync(string? details, string? cell, Guid? upazilaId, CancellationToken cancellationToken)
+    // The District and Division always come from the locality (an Upazila or a City Corporation), so the path can never disagree with it.
+    // The filters are lifted for the locality so an address keeps its path even if it were deleted (deleting one in use is refused anyway).
+    private async Task<StudentAddress?> AddressAsync(
+        string? details, string? cell, Guid? upazilaId, Guid? cityCorporationId, CancellationToken cancellationToken)
     {
-        if (details is null && cell is null && upazilaId is null)
+        if (details is null && cell is null && upazilaId is null && cityCorporationId is null)
         {
             return null;
         }
 
-        if (upazilaId is not { } id)
+        if (upazilaId is { } upazila)
         {
-            return new StudentAddress(details, cell, null, null, null, null, null, null);
+            var path = await (from u in db.Upazilas.IgnoreQueryFilters().AsNoTracking()
+                              join district in db.Districts.IgnoreQueryFilters().AsNoTracking() on u.DistrictId equals district.Id
+                              join division in db.Divisions.IgnoreQueryFilters().AsNoTracking() on district.DivisionId equals division.Id
+                              where u.Id == upazila
+                              select new StudentAddress(details, cell, u.Id, u.Name, null, null, district.Id, district.Name, division.Id, division.Name))
+                .FirstOrDefaultAsync(cancellationToken);
+            return path ?? new StudentAddress(details, cell, upazila, null, null, null, null, null, null, null);
         }
 
-        var path = await (from upazila in db.Upazilas.IgnoreQueryFilters().AsNoTracking()
-                          join district in db.Districts.AsNoTracking() on upazila.DistrictId equals district.Id
-                          join division in db.Divisions.AsNoTracking() on district.DivisionId equals division.Id
-                          where upazila.Id == id
-                          select new StudentAddress(details, cell, upazila.Id, upazila.Name, district.Id, district.Name, division.Id, division.Name))
-            .FirstOrDefaultAsync(cancellationToken);
-        return path ?? new StudentAddress(details, cell, id, null, null, null, null, null);
+        if (cityCorporationId is { } city)
+        {
+            var path = await (from c in db.CityCorporations.IgnoreQueryFilters().AsNoTracking()
+                              join district in db.Districts.IgnoreQueryFilters().AsNoTracking() on c.DistrictId equals district.Id
+                              join division in db.Divisions.IgnoreQueryFilters().AsNoTracking() on district.DivisionId equals division.Id
+                              where c.Id == city
+                              select new StudentAddress(details, cell, null, null, c.Id, c.Name, district.Id, district.Name, division.Id, division.Name))
+                .FirstOrDefaultAsync(cancellationToken);
+            return path ?? new StudentAddress(details, cell, null, null, city, null, null, null, null, null);
+        }
+
+        return new StudentAddress(details, cell, null, null, null, null, null, null, null, null);
     }
 
     /// <summary>Recognises a unique violation from PostgreSQL, or from SQLite in the test host, and which rule it was.</summary>

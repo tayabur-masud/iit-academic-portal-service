@@ -65,7 +65,7 @@ public interface IConfigurationStore
     Task<bool> HasActiveDependentCoursesAsync(Guid courseId, Guid? outsideDegreeId, CancellationToken cancellationToken);
 
     /// <summary>
-    /// True when a Student admission (Degree, Batch, Hall), a Student address (Upazila), or a Student academic-history entry
+    /// True when a Student admission (Degree, Batch, Hall), a Student address (Upazila or City Corporation), or a Student academic-history entry
     /// (educational institution, board, group) uses this record, which blocks deleting it (deactivate it instead). Other kinds are never
     /// used by students.
     /// </summary>

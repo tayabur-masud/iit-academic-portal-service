@@ -162,4 +162,45 @@ public sealed class ConfigurationDeleteIntegrityTests(PostgresDatabaseFixture fi
         // 10 catalogs with a globally unique name, 5 unique codes, and 3 names unique within a parent (batches, districts, upazilas).
         Assert.Equal(10 + 5 + 3, unique.Count);
     }
+
+    [PostgresFact]
+    public async Task A_city_corporation_in_a_student_address_cannot_be_deleted_by_the_portal_or_physically()
+    {
+        var division = Named(Unique("Div"), new Division());
+        await SaveAsync(division);
+        var district = Named(Unique("Dist"), new District { DivisionId = division.Id });
+        await SaveAsync(district);
+        var used = Named(Unique("City"), new CityCorporation { DistrictId = district.Id });
+        var unused = Named(Unique("City"), new CityCorporation { DistrictId = district.Id });
+        await SaveAsync(used, unused);
+        await using (var db = Db.CreateRuntimeContext())
+        {
+            var email = PortalApiFactory.UniqueEmail("cc-student");
+            var user = new Domain.Identity.PortalUser
+            {
+                Id = Guid.NewGuid().ToString(), UserName = email, NormalizedUserName = email.ToUpperInvariant(), Email = email,
+                NormalizedEmail = email.ToUpperInvariant(), SecurityStamp = Guid.NewGuid().ToString(),
+            };
+            db.Users.Add(user);
+            var profile = Domain.Students.StudentProfile.Create(user.Id);
+            profile.ApplicantName = "CC Student";
+            profile.ApplicantMobile = "01700000000";
+            profile.PermanentAddressDetails = "Holding 1";
+            profile.PermanentCityCorporationId = used.Id;
+            db.StudentProfiles.Add(profile);
+            await db.SaveChangesAsync();
+        }
+
+        await using (var db = Db.CreateRuntimeContext())
+        {
+            var store = new ConfigurationStore(db);
+            Assert.True(await store.UsedByStudentsAsync<CityCorporation>(used.Id, CancellationToken.None));
+            Assert.False(await store.UsedByStudentsAsync<CityCorporation>(unused.Id, CancellationToken.None));
+        }
+
+        await using var connection = await Db.OpenAsync(Db.DdlConnectionString);
+        var error = await Assert.ThrowsAsync<PostgresException>(() =>
+            PostgresTestDatabase.ExecuteAsync(connection, $"DELETE FROM \"CityCorporations\" WHERE \"Id\" = '{used.Id}'"));
+        Assert.Equal(PostgresErrorCodes.RestrictViolation, error.SqlState);
+    }
 }

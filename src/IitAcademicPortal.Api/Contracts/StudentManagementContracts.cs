@@ -3,16 +3,23 @@ using IitAcademicPortal.Application.Students;
 
 namespace IitAcademicPortal.Api.Contracts;
 
-/// <summary>A mailing or permanent address: free-text details and an Upazila. District and Division are derived, never submitted.</summary>
+/// <summary>
+/// A mailing or permanent address: free-text details, the District the locality was chosen from (checked, not stored), and exactly one
+/// of <c>upazilaId</c> or <c>cityCorporationId</c> in that District. The Division is derived and never submitted.
+/// </summary>
 public sealed class StudentAddressRequest
 {
     public string? Details { get; init; }
 
+    public Guid? DistrictId { get; init; }
+
     public Guid? UpazilaId { get; init; }
+
+    public Guid? CityCorporationId { get; init; }
 
     public string? CellNumber { get; init; }
 
-    public StudentAddressInput ToInput() => new(Details, UpazilaId, CellNumber);
+    public StudentAddressInput ToInput() => new(Details, DistrictId, UpazilaId, CityCorporationId, CellNumber);
 }
 
 /// <summary>
@@ -156,13 +163,16 @@ public sealed record StudentAddressResponse(
     string? CellNumber,
     Guid? UpazilaId,
     string? UpazilaName,
+    Guid? CityCorporationId,
+    string? CityCorporationName,
     Guid? DistrictId,
     string? DistrictName,
     Guid? DivisionId,
     string? DivisionName)
 {
     public static StudentAddressResponse? From(StudentAddress? a) =>
-        a is null ? null : new(a.Details, a.CellNumber, a.UpazilaId, a.UpazilaName, a.DistrictId, a.DistrictName, a.DivisionId, a.DivisionName);
+        a is null ? null : new(a.Details, a.CellNumber, a.UpazilaId, a.UpazilaName, a.CityCorporationId, a.CityCorporationName, a.DistrictId,
+            a.DistrictName, a.DivisionId, a.DivisionName);
 }
 
 public sealed record AcademicHistoryResponse(
@@ -312,17 +322,20 @@ public sealed record StudentLookupResponse(string Status, [property: JsonIgnore(
 public sealed record EligibilityRequirementResponse(string Requirement, string Status, string Message);
 
 /// <summary>
-/// The computed graduation eligibility of one admission. Credit totals are omitted when their source could not supply them; an
-/// unavailable source is never eligibility.
+/// The computed graduation eligibility of one admission. The Degree's required credits and minimum CGPA, and the admission's published
+/// completed credits and current cumulative CGPA, are each omitted when their source could not supply them; an unavailable value is
+/// never eligibility. The CGPA is the academic-results owner's; this response never calculates one.
 /// </summary>
 public sealed record GraduationEligibilityResponse(
     Guid AdmissionId,
     bool Eligible,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] decimal? RequiredCredits,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] decimal? CompletedCredits,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] decimal? MinimumCgpa,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] decimal? CurrentCumulativeCgpa,
     IReadOnlyList<EligibilityRequirementResponse> Requirements)
 {
     public static GraduationEligibilityResponse From(GraduationEligibility e) => new(
-        e.AdmissionId, e.Eligible, e.RequiredCredits, e.CompletedCredits,
+        e.AdmissionId, e.Eligible, e.RequiredCredits, e.CompletedCredits, e.MinimumCgpa, e.CurrentCumulativeCgpa,
         e.Requirements.Select(r => new EligibilityRequirementResponse(r.Requirement.ToString(), r.Status.ToString(), r.Message)).ToList());
 }

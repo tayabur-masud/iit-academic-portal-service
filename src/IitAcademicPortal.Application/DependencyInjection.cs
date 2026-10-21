@@ -48,8 +48,8 @@ public static class DependencyInjection
         services.AddScoped<StudentAdmissionService>();
         services.AddScoped<GraduationEligibilityService>();
 
-        // Passed-course credits belong to the academic-results owner. Until it registers its adapter, eligibility reports them unavailable.
-        services.TryAddScoped<ICompletedCreditsProvider, UnavailableCompletedCreditsProvider>();
+        // Published credits and CGPA belong to the academic-results owner. Until it registers its adapter, eligibility reports them unavailable.
+        services.TryAddScoped<IPublishedAdmissionResultsProvider, UnavailablePublishedAdmissionResultsProvider>();
         services.AddSingleton<NotificationTemplateRenderer>();
         services.AddSingleton<NotificationMetrics>();
         services.AddSingleton<INotificationFailureSignal, LoggingNotificationFailureSignal>();

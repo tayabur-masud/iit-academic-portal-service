@@ -114,6 +114,8 @@ public sealed class ConfigurationStore(PortalDbContext db) : IConfigurationStore
         : typeof(T) == typeof(Batch) ? db.StudentAdmissions.AnyAsync(a => a.BatchId == id, cancellationToken)
         : typeof(T) == typeof(Hall) ? db.StudentAdmissions.AnyAsync(a => a.AssignedHallId == id, cancellationToken)
         : typeof(T) == typeof(Upazila) ? db.StudentProfiles.AnyAsync(p => p.MailingUpazilaId == id || p.PermanentUpazilaId == id, cancellationToken)
+        : typeof(T) == typeof(CityCorporation)
+            ? db.StudentProfiles.AnyAsync(p => p.MailingCityCorporationId == id || p.PermanentCityCorporationId == id, cancellationToken)
         : typeof(T) == typeof(EducationalInstitution)
             ? db.StudentAcademicHistoryEntries.AnyAsync(h => h.SchoolOrCollegeId == id || h.UniversityId == id || h.InstitutionId == id, cancellationToken)
         : typeof(T) == typeof(EducationBoard) ? db.StudentAcademicHistoryEntries.AnyAsync(h => h.BoardId == id, cancellationToken)

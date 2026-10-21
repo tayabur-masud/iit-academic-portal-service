@@ -18,7 +18,7 @@ public sealed class StudentPostgresTests(PostgresDatabaseFixture fixture) : ICla
 {
     private PostgresTestDatabase Db => fixture.Database!;
 
-    private sealed record Seed(Guid Degree, Guid Batch, Guid OtherBatch, Guid Hall, Guid Upazila);
+    private sealed record Seed(Guid Degree, Guid Batch, Guid OtherBatch, Guid Hall, Guid Upazila, Guid CityCorporation);
 
     private static T Named<T>(T record) where T : ConfigurationRecord
     {
@@ -44,9 +44,10 @@ public sealed class StudentPostgresTests(PostgresDatabaseFixture fixture) : ICla
         db.AddRange(batch, other, hall, district);
         await db.SaveChangesAsync();
         var upazila = Named(new Upazila { DistrictId = district.Id });
-        db.Add(upazila);
+        var city = Named(new CityCorporation { DistrictId = district.Id });
+        db.AddRange(upazila, city);
         await db.SaveChangesAsync();
-        return new Seed(degree.Id, batch.Id, other.Id, hall.Id, upazila.Id);
+        return new Seed(degree.Id, batch.Id, other.Id, hall.Id, upazila.Id, city.Id);
     }
 
     private async Task<string> AddUserAsync()
@@ -261,5 +262,82 @@ public sealed class StudentPostgresTests(PostgresDatabaseFixture fixture) : ICla
         Assert.Equal("01800000000", stored.ApplicantMobile);
         Assert.InRange(stored.CreatedAtUtc, DateTime.UtcNow.AddMinutes(-2), DateTime.UtcNow.AddMinutes(1));
         Assert.True(stored.LastModifiedAtUtc >= stored.CreatedAtUtc);
+    }
+
+    [PostgresFact]
+    public async Task An_address_may_reference_a_city_corporation_but_never_both_localities_and_the_reference_is_restrictive()
+    {
+        var seed = await SeedAsync();
+        var userId = await AddUserAsync();
+        var profile = NewProfile(userId);
+        profile.MailingAddressDetails = "Holding 7";
+        profile.MailingCityCorporationId = seed.CityCorporation;
+        profile.PermanentAddressDetails = "Village 2";
+        profile.PermanentUpazilaId = seed.Upazila;
+        await using (var db = Db.CreateRuntimeContext())
+        {
+            db.StudentProfiles.Add(profile);
+            await db.SaveChangesAsync();
+        }
+
+        await using var ddl = await Db.OpenAsync(Db.DdlConnectionString);
+        foreach (var column in new[] { "Mailing", "Permanent" })
+        {
+            var both = await Assert.ThrowsAsync<PostgresException>(() => PostgresTestDatabase.ExecuteAsync(ddl,
+                $"UPDATE \"StudentProfiles\" SET \"{column}UpazilaId\" = '{seed.Upazila}', \"{column}CityCorporationId\" = '{seed.CityCorporation}' WHERE \"Id\" = '{profile.Id}'"));
+            Assert.Equal(PostgresErrorCodes.CheckViolation, both.SqlState);
+        }
+
+        var delete = await Assert.ThrowsAsync<PostgresException>(() =>
+            PostgresTestDatabase.ExecuteAsync(ddl, $"DELETE FROM \"CityCorporations\" WHERE \"Id\" = '{seed.CityCorporation}'"));
+        Assert.Contains(delete.SqlState, new[] { "23001", "23503" });
+
+        await using var command = new NpgsqlCommand(
+            "SELECT conname || ':' || confdeltype::text FROM pg_constraint WHERE contype = 'f' AND conrelid = '\"StudentProfiles\"'::regclass " +
+            "AND confrelid = '\"CityCorporations\"'::regclass ORDER BY conname", ddl);
+        var keys = new List<string>();
+        await using (var reader = await command.ExecuteReaderAsync())
+        {
+            while (await reader.ReadAsync())
+            {
+                keys.Add(reader.GetString(0));
+            }
+        }
+
+        Assert.Equal(2, keys.Count);
+        Assert.All(keys, k => Assert.Matches(":[ra]$", k));
+    }
+
+    [PostgresFact]
+    public async Task The_address_locality_migration_keeps_every_existing_upazila_reference()
+    {
+        await using var database = await PostgresTestDatabase.CreateAsync();
+        Guid upazila, profile;
+        await using (var ddl = database.CreateContext(database.DdlConnectionString))
+        {
+            var migrator = Microsoft.EntityFrameworkCore.Infrastructure.AccessorExtensions.GetService<Microsoft.EntityFrameworkCore.Migrations.IMigrator>(ddl);
+            await migrator.MigrateAsync("20261020183156_CityCorporationsDegreeMinimumCgpaAndGrades");
+            await using var connection = await database.OpenAsync(database.DdlConnectionString);
+            var division = Guid.NewGuid();
+            var district = Guid.NewGuid();
+            upazila = Guid.NewGuid();
+            profile = Guid.NewGuid();
+            await PostgresTestDatabase.ExecuteAsync(connection,
+                $"INSERT INTO \"Divisions\" (\"Id\", \"Name\", \"NormalizedName\", \"IsActive\") VALUES ('{division}', 'D', 'D', true);" +
+                $"INSERT INTO \"Districts\" (\"Id\", \"DivisionId\", \"Name\", \"NormalizedName\", \"IsActive\") VALUES ('{district}', '{division}', 'T', 'T', true);" +
+                $"INSERT INTO \"Upazilas\" (\"Id\", \"DistrictId\", \"Name\", \"NormalizedName\", \"IsActive\") VALUES ('{upazila}', '{district}', 'U', 'U', true);" +
+                "INSERT INTO \"AspNetUsers\" (\"Id\", \"UserName\", \"NormalizedUserName\", \"Email\", \"NormalizedEmail\", \"EmailConfirmed\", " +
+                "\"PhoneNumberConfirmed\", \"TwoFactorEnabled\", \"LockoutEnabled\", \"AccessFailedCount\") " +
+                "VALUES ('old-student', 'old@iit.test', 'OLD@IIT.TEST', 'old@iit.test', 'OLD@IIT.TEST', false, false, false, false, 0);" +
+                $"INSERT INTO \"StudentProfiles\" (\"Id\", \"UserId\", \"ApplicantName\", \"ApplicantMobile\", \"MailingAddressDetails\", \"MailingUpazilaId\", " +
+                $"\"PermanentAddressDetails\", \"PermanentUpazilaId\") VALUES ('{profile}', 'old-student', 'Old', '01700000000', 'House', '{upazila}', 'Village', '{upazila}');");
+            await migrator.MigrateAsync();
+        }
+
+        await using var verify = await database.OpenAsync(database.DdlConnectionString);
+        await using var command = new NpgsqlCommand(
+            "SELECT coalesce(\"MailingUpazilaId\"::text, '-') || '|' || coalesce(\"PermanentUpazilaId\"::text, '-') || '|' || " +
+            $"coalesce(\"MailingCityCorporationId\"::text, '-') || '|' || coalesce(\"PermanentCityCorporationId\"::text, '-') FROM \"StudentProfiles\" WHERE \"Id\" = '{profile}'", verify);
+        Assert.Equal($"{upazila}|{upazila}|-|-", await command.ExecuteScalarAsync());
     }
 }

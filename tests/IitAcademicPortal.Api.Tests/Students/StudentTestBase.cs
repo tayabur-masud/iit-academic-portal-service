@@ -19,7 +19,8 @@ public abstract class StudentTestBase : UserManagementTestBase
     /// <summary>The Configuration records the tests choose from. "Pgdit" and "Emit" are two programs with one batch each.</summary>
     protected sealed record References(
         Guid Pgdit, Guid PgditBatch, Guid Emit, Guid EmitBatch, Guid EmitSecondBatch, Guid InactiveDegree, Guid InactiveDegreeBatch,
-        Guid Hall, Guid OtherHall, Guid InactiveHall, Guid Division, Guid District, Guid Upazila, Guid OtherUpazila, Guid InactiveUpazila);
+        Guid Hall, Guid OtherHall, Guid InactiveHall, Guid Division, Guid District, Guid Upazila, Guid OtherUpazila, Guid InactiveUpazila,
+        Guid CityCorporation, Guid InactiveCityCorporation, Guid OtherDistrict, Guid OtherDistrictUpazila, Guid OtherDistrictCityCorporation);
 
     private References? references;
 
@@ -66,6 +67,11 @@ public abstract class StudentTestBase : UserManagementTestBase
         var upazila = Named(new Upazila { DistrictId = district.Id }, "Kaliakair");
         var otherUpazila = Named(new Upazila { DistrictId = district.Id }, "Sreepur");
         var inactiveUpazila = Named(new Upazila { DistrictId = district.Id }, "Old Thana", active: false);
+        var city = Named(new CityCorporation { DistrictId = district.Id }, "Gazipur City Corporation");
+        var inactiveCity = Named(new CityCorporation { DistrictId = district.Id }, "Old City Corporation", active: false);
+        var otherDistrict = Named(new District { DivisionId = division.Id }, "Narayanganj");
+        var otherDistrictUpazila = Named(new Upazila { DistrictId = otherDistrict.Id }, "Rupganj");
+        var otherDistrictCity = Named(new CityCorporation { DistrictId = otherDistrict.Id }, "Narayanganj City Corporation");
 
         await Host.WithDbAsync(async db =>
         {
@@ -73,15 +79,16 @@ public abstract class StudentTestBase : UserManagementTestBase
             await db.SaveChangesAsync();
             db.AddRange(pgditBatch, emitBatch, emitSecond, inactiveDegreeBatch, hall, otherHall, inactiveHall, division);
             await db.SaveChangesAsync();
-            db.Add(district);
+            db.AddRange(district, otherDistrict);
             await db.SaveChangesAsync();
-            db.AddRange(upazila, otherUpazila, inactiveUpazila);
+            db.AddRange(upazila, otherUpazila, inactiveUpazila, city, inactiveCity, otherDistrictUpazila, otherDistrictCity);
             await db.SaveChangesAsync();
         });
 
         references = new References(
             pgdit.Id, pgditBatch.Id, emit.Id, emitBatch.Id, emitSecond.Id, inactiveDegree.Id, inactiveDegreeBatch.Id, hall.Id, otherHall.Id,
-            inactiveHall.Id, division.Id, district.Id, upazila.Id, otherUpazila.Id, inactiveUpazila.Id);
+            inactiveHall.Id, division.Id, district.Id, upazila.Id, otherUpazila.Id, inactiveUpazila.Id, city.Id, inactiveCity.Id, otherDistrict.Id,
+            otherDistrictUpazila.Id, otherDistrictCity.Id);
         return references;
     }
 
@@ -127,7 +134,7 @@ public abstract class StudentTestBase : UserManagementTestBase
         var profile = admission.GetProperty("profile");
         string? Text(JsonElement e, string name) => e.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
         object? Address(string name) => profile.TryGetProperty(name, out var a) && a.ValueKind == JsonValueKind.Object
-            ? new { details = Text(a, "details"), upazilaId = Text(a, "upazilaId"), cellNumber = Text(a, "cellNumber") }
+            ? new { details = Text(a, "details"), districtId = Text(a, "districtId"), upazilaId = Text(a, "upazilaId"), cityCorporationId = Text(a, "cityCorporationId"), cellNumber = Text(a, "cellNumber") }
             : null;
         return new Dictionary<string, object?>
         {

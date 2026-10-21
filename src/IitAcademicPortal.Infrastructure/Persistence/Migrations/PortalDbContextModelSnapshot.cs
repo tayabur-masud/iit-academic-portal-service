@@ -2174,6 +2174,9 @@ namespace IitAcademicPortal.Infrastructure.Persistence.Migrations
                         .HasMaxLength(50)
                         .HasColumnType("character varying(50)");
 
+                    b.Property<Guid?>("MailingCityCorporationId")
+                        .HasColumnType("uuid");
+
                     b.Property<Guid?>("MailingUpazilaId")
                         .HasColumnType("uuid");
 
@@ -2197,6 +2200,9 @@ namespace IitAcademicPortal.Infrastructure.Persistence.Migrations
                         .HasMaxLength(50)
                         .HasColumnType("character varying(50)");
 
+                    b.Property<Guid?>("PermanentCityCorporationId")
+                        .HasColumnType("uuid");
+
                     b.Property<Guid?>("PermanentUpazilaId")
                         .HasColumnType("uuid");
 
@@ -2211,14 +2217,23 @@ namespace IitAcademicPortal.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("MailingCityCorporationId");
+
                     b.HasIndex("MailingUpazilaId");
+
+                    b.HasIndex("PermanentCityCorporationId");
 
                     b.HasIndex("PermanentUpazilaId");
 
                     b.HasIndex("UserId")
                         .IsUnique();
 
-                    b.ToTable("StudentProfiles", (string)null);
+                    b.ToTable("StudentProfiles", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_StudentProfiles_MailingLocality_AtMostOne", "\"MailingUpazilaId\" IS NULL OR \"MailingCityCorporationId\" IS NULL");
+
+                            t.HasCheckConstraint("CK_StudentProfiles_PermanentLocality_AtMostOne", "\"PermanentUpazilaId\" IS NULL OR \"PermanentCityCorporationId\" IS NULL");
+                        });
                 });
 
             modelBuilder.Entity("IitAcademicPortal.Domain.Teachers.TeacherProfile", b =>
@@ -2622,9 +2637,19 @@ namespace IitAcademicPortal.Infrastructure.Persistence.Migrations
 
             modelBuilder.Entity("IitAcademicPortal.Domain.Students.StudentProfile", b =>
                 {
+                    b.HasOne("IitAcademicPortal.Domain.Configuration.CityCorporation", null)
+                        .WithMany()
+                        .HasForeignKey("MailingCityCorporationId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.HasOne("IitAcademicPortal.Domain.Configuration.Upazila", null)
                         .WithMany()
                         .HasForeignKey("MailingUpazilaId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("IitAcademicPortal.Domain.Configuration.CityCorporation", null)
+                        .WithMany()
+                        .HasForeignKey("PermanentCityCorporationId")
                         .OnDelete(DeleteBehavior.Restrict);
 
                     b.HasOne("IitAcademicPortal.Domain.Configuration.Upazila", null)

@@ -263,13 +263,13 @@ public sealed class StudentAdmissionTests : StudentTestBase
     }
 
     [Fact]
-    public async Task Addresses_resolve_their_district_and_division_from_the_upazila()
+    public async Task Addresses_resolve_their_district_and_division_from_an_upazila()
     {
         var refs = await RefsAsync();
         using var admin = await AdminAsync();
         var form = Form(Unique("address"), refs.Pgdit, refs.PgditBatch);
-        form["mailingAddress"] = new { details = "House 12, Road 5, Dhanmondi", upazilaId = refs.Upazila, cellNumber = "01811000000" };
-        form["permanentAddress"] = new { details = "Village Chandra", upazilaId = refs.OtherUpazila };
+        form["mailingAddress"] = new { details = "House 12, Road 5, Dhanmondi", districtId = refs.District, upazilaId = refs.Upazila, cellNumber = "01811000000" };
+        form["permanentAddress"] = new { details = "Village Chandra", districtId = refs.District, upazilaId = refs.OtherUpazila };
 
         var (status, body) = await CreateAdmission(admin, form);
 
@@ -283,29 +283,155 @@ public sealed class StudentAdmissionTests : StudentTestBase
         Assert.Equal("Dhaka", mailing.GetProperty("divisionName").GetString());
         Assert.Equal("01811000000", mailing.GetProperty("cellNumber").GetString());
         Assert.Equal("Sreepur", body.GetProperty("admission").GetProperty("profile").GetProperty("permanentAddress").GetProperty("upazilaName").GetString());
+        Assert.Equal(JsonValueKind.Null, mailing.GetProperty("cityCorporationId").ValueKind);
     }
 
     [Fact]
-    public async Task An_address_needs_both_details_and_an_existing_active_upazila_and_takes_no_parent_ids()
+    public async Task An_address_may_use_a_city_corporation_whose_district_and_division_are_derived()
     {
         var refs = await RefsAsync();
         using var admin = await AdminAsync();
+        var form = Form(Unique("city"), refs.Pgdit, refs.PgditBatch);
+        form["mailingAddress"] = new { details = "Holding 7, Tongi", districtId = refs.District, cityCorporationId = refs.CityCorporation };
 
-        async Task<JsonElement> Attempt(object address)
+        var (status, body) = await CreateAdmission(admin, form);
+
+        Assert.Equal(HttpStatusCode.Created, status);
+        var mailing = body.GetProperty("admission").GetProperty("profile").GetProperty("mailingAddress");
+        Assert.Equal(refs.CityCorporation, mailing.GetProperty("cityCorporationId").GetGuid());
+        Assert.Equal("Gazipur City Corporation", mailing.GetProperty("cityCorporationName").GetString());
+        Assert.Equal(JsonValueKind.Null, mailing.GetProperty("upazilaId").ValueKind);
+        Assert.Equal(refs.District, mailing.GetProperty("districtId").GetGuid());
+        Assert.Equal("Gazipur", mailing.GetProperty("districtName").GetString());
+        Assert.Equal("Dhaka", mailing.GetProperty("divisionName").GetString());
+    }
+
+    [Fact]
+    public async Task Switching_an_address_between_locality_types_stores_only_the_new_one()
+    {
+        var refs = await RefsAsync();
+        using var admin = await AdminAsync();
+        var form = Form(Unique("switch"), refs.Pgdit, refs.PgditBatch);
+        form["mailingAddress"] = new { details = "House 1", districtId = refs.District, upazilaId = refs.Upazila };
+        var admission = await AdmitAsync(admin, form);
+
+        var update = FormOf((await GetAdmission(admin, admission.Id)).Body);
+        update["mailingAddress"] = new { details = "House 1", districtId = refs.OtherDistrict, cityCorporationId = refs.OtherDistrictCityCorporation };
+        var (status, body) = await PutAdmission(admin, admission.Id, update);
+
+        Assert.True(status == HttpStatusCode.OK, body.ToString());
+        var mailing = body.GetProperty("profile").GetProperty("mailingAddress");
+        Assert.Equal("Narayanganj City Corporation", mailing.GetProperty("cityCorporationName").GetString());
+        Assert.Equal("Narayanganj", mailing.GetProperty("districtName").GetString());
+        await Host.WithDbAsync(async db =>
         {
-            var form = Form(Unique("addr"), refs.Pgdit, refs.PgditBatch);
-            form["mailingAddress"] = address;
-            var (status, problem) = await CreateAdmission(admin, form);
-            Assert.Equal(HttpStatusCode.BadRequest, status);
-            return problem;
+            var profile = await db.StudentProfiles.AsNoTracking().SingleAsync(p => p.Id == admission.ProfileId);
+            Assert.Null(profile.MailingUpazilaId);
+            Assert.Equal(refs.OtherDistrictCityCorporation, profile.MailingCityCorporationId);
+        });
+    }
+
+    public static TheoryData<string, string> InvalidAddresses => new()
+    {
+        { "no-district", "mailingAddress.districtId" },
+        { "no-locality", "mailingAddress.upazilaId" },
+        { "both-localities", "mailingAddress.cityCorporationId" },
+        { "no-details", "mailingAddress.details" },
+        { "unknown-upazila", "mailingAddress.upazilaId" },
+        { "unknown-city", "mailingAddress.cityCorporationId" },
+        { "deleted-city", "mailingAddress.cityCorporationId" },
+        { "upazila-of-another-district", "mailingAddress.upazilaId" },
+        { "city-of-another-district", "mailingAddress.cityCorporationId" },
+        { "inactive-upazila", "mailingAddress.upazilaId" },
+        { "inactive-city", "mailingAddress.cityCorporationId" },
+        { "district-not-a-district", "mailingAddress.cityCorporationId" },
+    };
+
+    [Theory]
+    [MemberData(nameof(InvalidAddresses))]
+    public async Task An_invalid_address_locality_is_refused_with_its_field_and_nothing_is_stored(string problem, string field)
+    {
+        var refs = await RefsAsync();
+        using var admin = await AdminAsync();
+        if (problem == "deleted-city")
+        {
+            await Host.WithDbAsync(async db =>
+            {
+                (await db.CityCorporations.SingleAsync(c => c.Id == refs.OtherDistrictCityCorporation)).MarkDeleted(DateTime.UtcNow, null);
+                await db.SaveChangesAsync();
+            });
         }
 
-        Assert.True(HasError(await Attempt(new { details = "House 1" }), "mailingAddress.upazilaId"));
-        Assert.True(HasError(await Attempt(new { upazilaId = refs.Upazila }), "mailingAddress.details"));
-        Assert.True(HasError(await Attempt(new { details = "House 1", upazilaId = Guid.NewGuid() }), "mailingAddress.upazilaId"));
-        Assert.True(HasError(await Attempt(new { details = "House 1", upazilaId = refs.InactiveUpazila }), "mailingAddress.upazilaId"));
-        await Attempt(new { details = "House 1", upazilaId = refs.Upazila, districtId = refs.District });
+        object address = problem switch
+        {
+            "no-district" => new { details = "House 1", upazilaId = refs.Upazila },
+            "no-locality" => new { details = "House 1", districtId = refs.District },
+            "both-localities" => new { details = "House 1", districtId = refs.District, upazilaId = refs.Upazila, cityCorporationId = refs.CityCorporation },
+            "no-details" => new { districtId = refs.District, upazilaId = refs.Upazila },
+            "unknown-upazila" => new { details = "House 1", districtId = refs.District, upazilaId = Guid.NewGuid() },
+            "unknown-city" => new { details = "House 1", districtId = refs.District, cityCorporationId = Guid.NewGuid() },
+            "deleted-city" => new { details = "House 1", districtId = refs.OtherDistrict, cityCorporationId = refs.OtherDistrictCityCorporation },
+            "upazila-of-another-district" => new { details = "House 1", districtId = refs.District, upazilaId = refs.OtherDistrictUpazila },
+            "city-of-another-district" => new { details = "House 1", districtId = refs.District, cityCorporationId = refs.OtherDistrictCityCorporation },
+            "inactive-upazila" => new { details = "House 1", districtId = refs.District, upazilaId = refs.InactiveUpazila },
+            "inactive-city" => new { details = "House 1", districtId = refs.District, cityCorporationId = refs.InactiveCityCorporation },
+            // A Division id is not a District, so the City Corporation cannot belong to it.
+            _ => new { details = "House 1", districtId = refs.Division, cityCorporationId = refs.CityCorporation },
+        };
+        var form = Form(Unique("addr"), refs.Pgdit, refs.PgditBatch);
+        form["mailingAddress"] = address;
+
+        var (status, body) = await CreateAdmission(admin, form);
+
+        Assert.Equal(HttpStatusCode.BadRequest, status);
+        Assert.True(HasError(body, field), $"Expected an error on {field}: {body}");
         Assert.Equal(0, (await CountsAsync()).Profiles);
+    }
+
+    [Fact]
+    public async Task An_address_takes_no_division_id()
+    {
+        var refs = await RefsAsync();
+        using var admin = await AdminAsync();
+        var form = Form(Unique("division"), refs.Pgdit, refs.PgditBatch);
+        form["mailingAddress"] = new { details = "House 1", divisionId = refs.Division, districtId = refs.District, upazilaId = refs.Upazila };
+
+        var (status, _) = await CreateAdmission(admin, form);
+
+        Assert.Equal(HttpStatusCode.BadRequest, status);
+        Assert.Equal(0, (await CountsAsync()).Profiles);
+    }
+
+    [Fact]
+    public async Task A_locality_deactivated_later_may_stay_but_cannot_be_newly_chosen_and_a_refused_update_changes_nothing()
+    {
+        var refs = await RefsAsync();
+        using var admin = await AdminAsync();
+        var form = Form(Unique("keep"), refs.Pgdit, refs.PgditBatch);
+        form["mailingAddress"] = new { details = "House 1", districtId = refs.District, cityCorporationId = refs.CityCorporation };
+        var admission = await AdmitAsync(admin, form);
+        await Host.WithDbAsync(async db =>
+        {
+            (await db.CityCorporations.SingleAsync(c => c.Id == refs.CityCorporation)).IsActive = false;
+            await db.SaveChangesAsync();
+        });
+
+        var kept = FormOf((await GetAdmission(admin, admission.Id)).Body);
+        kept["applicantName"] = "Ayesha Rahman Khan";
+        Assert.Equal(HttpStatusCode.OK, (await PutAdmission(admin, admission.Id, kept)).Status);
+
+        // A new inactive choice is refused, and the name change sent with it is not saved either.
+        var refused = FormOf((await GetAdmission(admin, admission.Id)).Body);
+        refused["applicantName"] = "Should Not Save";
+        refused["permanentAddress"] = new { details = "Village 2", districtId = refs.District, cityCorporationId = refs.InactiveCityCorporation };
+        var (status, body) = await PutAdmission(admin, admission.Id, refused);
+
+        Assert.Equal(HttpStatusCode.BadRequest, status);
+        Assert.True(HasError(body, "permanentAddress.cityCorporationId"));
+        var profile = (await GetAdmission(admin, admission.Id)).Body.GetProperty("profile");
+        Assert.Equal("Ayesha Rahman Khan", profile.GetProperty("applicantName").GetString());
+        Assert.Equal(JsonValueKind.Null, profile.GetProperty("permanentAddress").ValueKind);
+        Assert.Equal(refs.CityCorporation, profile.GetProperty("mailingAddress").GetProperty("cityCorporationId").GetGuid());
     }
 
     [Fact]
@@ -445,15 +571,20 @@ public sealed class StudentAdmissionTests : StudentTestBase
     [InlineData("batches")]
     [InlineData("halls")]
     [InlineData("upazilas")]
+    [InlineData("city-corporations")]
     public async Task A_configuration_record_used_by_a_student_cannot_be_deleted(string route)
     {
         var refs = await RefsAsync();
         using var admin = await AdminAsync();
         var form = Form(Unique("uses"), refs.Pgdit, refs.PgditBatch);
         form["assignedHallId"] = refs.Hall;
-        form["mailingAddress"] = new { details = "House 3", upazilaId = refs.Upazila };
+        form["mailingAddress"] = new { details = "House 3", districtId = refs.District, upazilaId = refs.Upazila };
+        form["permanentAddress"] = new { details = "House 4", districtId = refs.District, cityCorporationId = refs.CityCorporation };
         await AdmitAsync(admin, form);
-        var id = route switch { "degrees" => refs.Pgdit, "batches" => refs.PgditBatch, "halls" => refs.Hall, _ => refs.Upazila };
+        var id = route switch
+        {
+            "degrees" => refs.Pgdit, "batches" => refs.PgditBatch, "halls" => refs.Hall, "upazilas" => refs.Upazila, _ => refs.CityCorporation,
+        };
 
         if (route == "degrees")
         {
@@ -467,7 +598,7 @@ public sealed class StudentAdmissionTests : StudentTestBase
         }
 
         var (status, problem) = await SendAsync(admin, HttpMethod.Delete,
-            route == "upazilas" ? $"/api/admin/configuration/geography/upazilas/{id}" : $"/api/admin/configuration/{route}/{id}");
+            route is "upazilas" or "city-corporations" ? $"/api/admin/configuration/geography/{route}/{id}" : $"/api/admin/configuration/{route}/{id}");
 
         Assert.Equal(HttpStatusCode.Conflict, status);
         Assert.Contains("Deactivate it instead", problem.GetProperty("detail").GetString());

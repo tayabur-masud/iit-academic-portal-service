@@ -387,16 +387,19 @@ one `StudentProfile` linked to one Student account (the account keeps the email)
   the form which case applies and returns the profile to prefill.
 - **Hall and registration number** are optional at admission and updated independently; a newly chosen Hall must be active; the
   registration number is unique across all admissions (case- and space-insensitive).
-- **Addresses** store free-text details and an Upazila; District and Division are always derived from it.
+- **Addresses** store free-text details and one locality, an Upazila or a City Corporation; District and Division are always derived
+  from it. A request sends `districtId` with exactly one of `upazilaId` or `cityCorporationId`; the locality must be in that District
+  (the District itself is not stored).
 - **Academic history** chooses the school or college, university, institution, board, and group from the Configuration catalogs (institutions
   filtered by type), storing the reference plus a name snapshot that later renames never rewrite; a value not in a catalog is typed and kept
   as text. Other history values are text as written on the form.
 - **Graduation eligibility** (`GET /api/admin/students/{admissionId}/graduation-eligibility`) compares the Degree's
-  `CreditsToBeCompleted` with the passed-course credits of that admission from `ICompletedCreditsProvider`, and needs the Hall and
-  registration number. Nothing is stored and results are never blocked. **For the academic-results feature:** register an
-  `ICompletedCreditsProvider` keyed by admission ID; until then `UnavailableCompletedCreditsProvider` reports the credits as unavailable,
-  so no admission is eligible.
-- Deleting a Degree, Batch, Hall, Upazila, educational institution, education board, or education group that a student uses is refused
+  `CreditsToBeCompleted` and `MinimumCgpaForCompletion` with that admission's passed-course credits and current cumulative CGPA from
+  `IPublishedAdmissionResultsProvider`, and needs the Hall and registration number. Nothing is stored or calculated and results are never
+  blocked. **For the academic-results feature:** register an `IPublishedAdmissionResultsProvider` keyed by admission ID that returns both
+  values (each with a reason when unavailable); until then `UnavailablePublishedAdmissionResultsProvider` reports both as unavailable, so
+  no admission is eligible.
+- Deleting a Degree, Batch, Hall, Upazila, City Corporation, educational institution, education board, or education group that a student uses is refused
   (deactivate it instead).
 
 ## Configuration (Admin reference data)

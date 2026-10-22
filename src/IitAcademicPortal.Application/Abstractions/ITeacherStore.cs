@@ -1,3 +1,4 @@
+using IitAcademicPortal.Application.MyProfile;
 using IitAcademicPortal.Application.Teachers;
 using IitAcademicPortal.Domain.Teachers;
 
@@ -63,6 +64,9 @@ public interface ITeacherStore
     Task SaveAsync(CancellationToken cancellationToken);
 
     Task<TeacherDetail?> GetDetailAsync(Guid teacherId, CancellationToken cancellationToken);
+
+    /// <summary>The account's own teacher profile for My Profile, or null when it has none.</summary>
+    Task<MyTeacherProfile?> GetOwnProfileAsync(string userId, CancellationToken cancellationToken);
 
     Task<TeacherListPage> ListAsync(TeacherListFilter filter, int page, int pageSize, CancellationToken cancellationToken);
 }

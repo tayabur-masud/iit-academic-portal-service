@@ -364,6 +364,21 @@ Admins keep a staff profile for each Admin account under `/api/admin/staff` (con
 - Staff Management never changes roles, credentials, `PhoneNumber`, or teacher and student profiles. A Designation used by a staff profile
   cannot be deleted. User Management's own account deactivation does not mark the staff profile inactive.
 
+## My Profile (every role)
+
+`GET /api/profile` (`MyProfileController`, `MyProfileService`; contract: `specs/010-my-profile/contracts/`) returns the signed-in
+account's own profile for the session's active role, for every supported role. It is read-only and takes no identifier, role, query, or body;
+the account comes from the session's `NameIdentifier` claim and the role from its active-role claim.
+
+- The response is `email`, `activeRole`, and `profile`, a role-discriminated object (`kind`): Admin reads the `StaffProfile` (`staff`),
+  Student the `StudentProfile` with addresses, guardian, and prior education (`student`), and Teacher or Coordinator the same account's
+  `TeacherProfile` (`teacher`). Designation names are current, even for a Designation deleted since.
+- An account without the active role's profile gets `profile: null`; another role's profile is never substituted.
+- The DTOs (`MyProfileContracts.cs`) are an allowlist built from purpose-made store projections (`GetOwnProfileAsync` on the Staff, Teacher,
+  and Student stores; the Student one never loads admissions). No identifier, catalog key, account status, role list, audit fact,
+  admission, result, or credential is returned.
+- A session with no supported active role gets 403; an anonymous request 401. There is no write route, so any other method is 405.
+
 ## User management (Admin) and account setup
 
 Admins manage every portal account under `/api/admin/users` (contract: `specs/006-user-management/contracts/`). There is no new account table:

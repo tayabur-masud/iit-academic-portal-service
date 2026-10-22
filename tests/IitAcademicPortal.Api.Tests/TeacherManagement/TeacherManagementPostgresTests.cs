@@ -1,6 +1,7 @@
 using IitAcademicPortal.Api.Tests.Infrastructure;
 using IitAcademicPortal.Application.Abstractions;
 using IitAcademicPortal.Application.Auditing;
+using IitAcademicPortal.Application.MyProfile;
 using IitAcademicPortal.Application.Teachers;
 using IitAcademicPortal.Domain.Identity;
 using IitAcademicPortal.Domain.Sessions;
@@ -317,6 +318,9 @@ public sealed class TeacherManagementPostgresTests(PostgresDatabaseFixture fixtu
         public Task SaveAsync(CancellationToken cancellationToken) => inner.SaveAsync(cancellationToken);
 
         public Task<TeacherDetail?> GetDetailAsync(Guid teacherId, CancellationToken cancellationToken) => inner.GetDetailAsync(teacherId, cancellationToken);
+
+        public Task<MyTeacherProfile?> GetOwnProfileAsync(string userId, CancellationToken cancellationToken) =>
+            inner.GetOwnProfileAsync(userId, cancellationToken);
 
         public Task<TeacherListPage> ListAsync(TeacherListFilter filter, int page, int pageSize, CancellationToken cancellationToken) =>
             inner.ListAsync(filter, page, pageSize, cancellationToken);

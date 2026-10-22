@@ -39,6 +39,9 @@ public sealed class UserAccountStore(PortalDbContext db) : IUserAccountStore
         return new UserListPage(rows.Select(ToDetail).ToList(), page, total, totalPages);
     }
 
+    public Task<string?> GetEmailAsync(string userId, CancellationToken cancellationToken) =>
+        db.Users.AsNoTracking().Where(u => u.Id == userId).Select(u => u.Email).FirstOrDefaultAsync(cancellationToken);
+
     public async Task<UserAccountDetail?> GetDetailAsync(string userId, CancellationToken cancellationToken)
     {
         var row = await Rows(db.Users.AsNoTracking().Where(u => u.Id == userId)).FirstOrDefaultAsync(cancellationToken);

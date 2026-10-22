@@ -1,3 +1,4 @@
+using IitAcademicPortal.Application.MyProfile;
 using IitAcademicPortal.Application.Staff;
 using IitAcademicPortal.Domain.Staff;
 
@@ -37,6 +38,9 @@ public interface IStaffStore
     Task SaveAsync(CancellationToken cancellationToken);
 
     Task<StaffDetail?> GetDetailAsync(Guid profileId, CancellationToken cancellationToken);
+
+    /// <summary>The account's own profile for My Profile (name, mobile number, Designation name), or null when it has none.</summary>
+    Task<MyStaffProfile?> GetOwnProfileAsync(string userId, CancellationToken cancellationToken);
 
     /// <summary>One page ordered by name, matching a normalized search over name, account email, mobile number, and Designation name.</summary>
     Task<StaffListPage> ListAsync(string? normalizedSearch, int page, int pageSize, CancellationToken cancellationToken);

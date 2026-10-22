@@ -1,4 +1,5 @@
 using IitAcademicPortal.Application.Abstractions;
+using IitAcademicPortal.Application.MyProfile;
 using IitAcademicPortal.Application.Students;
 using IitAcademicPortal.Domain.Identity;
 using IitAcademicPortal.Domain.Students;
@@ -116,6 +117,31 @@ public sealed class StudentStore(PortalDbContext db) : IStudentStore
 
     public Task<StudentProfileDetail?> GetProfileOfUserAsync(string userId, CancellationToken cancellationToken) =>
         ProfileDetailAsync(db.StudentProfiles.AsNoTracking().Where(p => p.UserId == userId), cancellationToken);
+
+    public async Task<MyStudentProfile?> GetOwnProfileAsync(string userId, CancellationToken cancellationToken)
+    {
+        var profile = await db.StudentProfiles.AsNoTracking().Include(p => p.AcademicHistory)
+            .FirstOrDefaultAsync(p => p.UserId == userId, cancellationToken);
+        if (profile is null)
+        {
+            return null;
+        }
+
+        var history = profile.AcademicHistory.OrderBy(h => h.SortOrder).ThenBy(h => h.Id).Select(h => new MyAcademicHistoryEntry(
+            h.Category.ToString(), h.Examination, h.SchoolOrCollege, h.Board, h.Group, h.Department, h.University, h.Subject, h.Institution,
+            h.Year, h.MarksObtained, h.MarksPercentage, h.Cgpa, h.Class, h.Division)).ToList();
+
+        return new MyStudentProfile(
+            profile.ApplicantName, profile.FatherName, profile.MotherName, profile.DateOfBirth, profile.PlaceOfBirth, profile.MaritalStatus,
+            profile.Nationality, profile.ApplicantMobile,
+            Named(await AddressAsync(profile.MailingAddressDetails, profile.MailingCellNumber, profile.MailingUpazilaId, profile.MailingCityCorporationId, cancellationToken)),
+            Named(await AddressAsync(profile.PermanentAddressDetails, profile.PermanentCellNumber, profile.PermanentUpazilaId, profile.PermanentCityCorporationId, cancellationToken)),
+            profile.GuardianName, profile.GuardianRelationship, profile.GuardianAddress, profile.GuardianCellNumber, history);
+    }
+
+    private static MyAddress? Named(StudentAddress? address) => address is null
+        ? null
+        : new MyAddress(address.Details, address.CellNumber, address.UpazilaName, address.CityCorporationName, address.DistrictName, address.DivisionName);
 
     public async Task<StudentListPage> ListAsync(StudentListFilter filter, int page, int pageSize, CancellationToken cancellationToken)
     {

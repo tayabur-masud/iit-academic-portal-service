@@ -1,4 +1,5 @@
 using IitAcademicPortal.Application.Abstractions;
+using IitAcademicPortal.Application.MyProfile;
 using IitAcademicPortal.Application.Teachers;
 using IitAcademicPortal.Domain.Identity;
 using IitAcademicPortal.Domain.Teachers;
@@ -90,6 +91,14 @@ public sealed class TeacherStore(PortalDbContext db) : ITeacherStore
         var row = await Rows(db.TeacherProfiles.AsNoTracking().Where(p => p.Id == teacherId)).FirstOrDefaultAsync(cancellationToken);
         return row is null ? null : ToDetail(row);
     }
+
+    // The Designation's current name, even if it was deleted since: it is still the one assigned.
+    public Task<MyTeacherProfile?> GetOwnProfileAsync(string userId, CancellationToken cancellationToken) =>
+        db.TeacherProfiles.AsNoTracking().Where(p => p.UserId == userId)
+            .Select(p => new MyTeacherProfile(
+                p.DisplayName, p.EmployeeStaffId, p.Phone,
+                db.Designations.IgnoreQueryFilters().Where(d => d.Id == p.DesignationId).Select(d => d.Name).FirstOrDefault()))
+            .FirstOrDefaultAsync(cancellationToken);
 
     public async Task<TeacherListPage> ListAsync(TeacherListFilter filter, int page, int pageSize, CancellationToken cancellationToken)
     {

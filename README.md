@@ -344,6 +344,26 @@ Admins add, update, find, and deactivate teachers under `/api/admin/teachers` (c
 - Every multi-step change runs in one transaction with its staged `teacher.*` audit event (`TeacherAuditEventDefinitions`; email and phone are recorded as "changed" only).
 - **For the future batch-coordinator feature:** call `ITeacherCoordinatorRoleSynchronizer.SynchronizeCoordinatorRoleAsync(teacherUserId, hasActiveCoordinatorAssignments, ct)` in the same unit of work as every assignment create, change, or end, after working out whether any active assignment remains, and save once. It stages the Coordinator role and its audit event without saving. Add your own tests proving each assignment operation calls it; Teacher Management only tests the synchronizer itself.
 
+## Staff management (Admin)
+
+Admins keep a staff profile for each Admin account under `/api/admin/staff` (contract: `specs/009-staff-management/contracts/`). A profile is a
+`StaffProfile` (Name, Mobile number, required Designation, `IsActive`) linked one-to-one to a `PortalUser` that has the Admin role.
+
+- `POST /api/admin/staff` takes an email. A new email gets a pending Admin account (no password, Admin as the only and default role) and
+  the profile in one transaction, then the credential setup email is requested after the commit (`setupEmailRequested` in the response).
+  An existing Admin account that is not deactivated and has no profile is linked instead, without changing the account.
+
+- Every create and update needs `manualVerificationConfirmed: true`; the confirmation is stored only in the `staff.profile.created` or
+  `staff.profile.updated` audit event (`StaffAuditEventDefinitions`; the mobile number is recorded as "changed" only), saved in the same
+  transaction as the profile. No document or verified state is kept.
+- An account gets a profile once. A deactivated staff member, or a profile whose account later loses Admin or is deactivated, is kept and
+  readable but cannot be changed. An Admin edits their own profile through the same routes.
+- `POST /api/admin/staff/{id}/deactivation` (`StaffLifecycleService`) marks the profile inactive, deactivates the account, and revokes its
+  sessions in one transaction with the `staff.profile.deactivated` event. It refuses the caller's own profile and the last active Admin
+  (under the same advisory lock as Teacher and User Management); a repeat is a no-op. There is no reactivation or delete.
+- Staff Management never changes roles, credentials, `PhoneNumber`, or teacher and student profiles. A Designation used by a staff profile
+  cannot be deleted. User Management's own account deactivation does not mark the staff profile inactive.
+
 ## User management (Admin) and account setup
 
 Admins manage every portal account under `/api/admin/users` (contract: `specs/006-user-management/contracts/`). There is no new account table:

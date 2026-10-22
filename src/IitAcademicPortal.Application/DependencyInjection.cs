@@ -4,6 +4,7 @@ using IitAcademicPortal.Application.Authentication;
 using IitAcademicPortal.Application.Configuration;
 using IitAcademicPortal.Application.Notifications;
 using IitAcademicPortal.Application.PasswordRecovery;
+using IitAcademicPortal.Application.Staff;
 using IitAcademicPortal.Application.Students;
 using IitAcademicPortal.Application.Teachers;
 using IitAcademicPortal.Application.UserManagement;
@@ -39,6 +40,8 @@ public static class DependencyInjection
         services.AddScoped<TeacherProfileService>();
         services.AddScoped<TeacherRoleService>();
         services.AddScoped<TeacherDirectoryService>();
+        services.AddScoped<StaffProfileService>();
+        services.AddScoped<StaffLifecycleService>();
         services.AddScoped<TeacherLifecycleService>();
         services.AddScoped<ITeacherCoordinatorRoleSynchronizer, TeacherCoordinatorRoleSynchronizer>();
         services.AddScoped<UserDirectoryService>();

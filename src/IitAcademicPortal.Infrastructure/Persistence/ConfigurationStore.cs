@@ -99,8 +99,9 @@ public sealed class ConfigurationStore(PortalDbContext db) : IConfigurationStore
     public Task<bool> ExistsAsync<T>(Expression<Func<T, bool>> predicate, CancellationToken cancellationToken) where T : ConfigurationRecord =>
         db.Set<T>().AnyAsync(predicate, cancellationToken);
 
-    public Task<bool> DesignationInUseByTeacherAsync(Guid designationId, CancellationToken cancellationToken) =>
-        db.TeacherProfiles.AnyAsync(t => t.DesignationId == designationId, cancellationToken);
+    public async Task<bool> DesignationInUseAsync(Guid designationId, CancellationToken cancellationToken) =>
+        await db.TeacherProfiles.AnyAsync(t => t.DesignationId == designationId, cancellationToken)
+        || await db.StaffProfiles.AnyAsync(s => s.DesignationId == designationId, cancellationToken);
 
     public Task<Guid?> PrerequisiteOfAsync(Guid courseId, CancellationToken cancellationToken) =>
         db.Courses.AsNoTracking().Where(c => c.Id == courseId).Select(c => c.PrerequisiteCourseId).FirstOrDefaultAsync(cancellationToken);

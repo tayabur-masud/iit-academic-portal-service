@@ -52,8 +52,8 @@ public interface IConfigurationStore
     /// <summary>True when any live (not deleted) record of this kind matches. Deleted records are never matched.</summary>
     Task<bool> ExistsAsync<T>(Expression<Func<T, bool>> predicate, CancellationToken cancellationToken) where T : ConfigurationRecord;
 
-    /// <summary>True when any teacher profile still uses this Designation, which blocks deleting it (deactivate it instead).</summary>
-    Task<bool> DesignationInUseByTeacherAsync(Guid designationId, CancellationToken cancellationToken);
+    /// <summary>True when any teacher or staff profile still uses this Designation, which blocks deleting it (deactivate it instead).</summary>
+    Task<bool> DesignationInUseAsync(Guid designationId, CancellationToken cancellationToken);
 
     /// <summary>The direct prerequisite of a live course, or null; used to walk one prerequisite chain without loading the catalog.</summary>
     Task<Guid?> PrerequisiteOfAsync(Guid courseId, CancellationToken cancellationToken);

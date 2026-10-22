@@ -18,7 +18,7 @@ public sealed class TeacherStore(PortalDbContext db) : ITeacherStore
     private const string UniqueViolation = "23505";
 
     // Arbitrary, fixed key for the PostgreSQL advisory lock that serializes the last-Admin check.
-    private const long AdminInvariantLockKey = 4_004_001;
+    internal const long AdminInvariantLockKey = 4_004_001;
 
     public async Task<ITeacherTransaction> BeginTransactionAsync(CancellationToken cancellationToken) =>
         new Transaction(await db.Database.BeginTransactionAsync(cancellationToken));

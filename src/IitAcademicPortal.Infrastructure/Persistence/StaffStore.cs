@@ -1,4 +1,5 @@
 using IitAcademicPortal.Application.Abstractions;
+using IitAcademicPortal.Application.MyProfile;
 using IitAcademicPortal.Application.Staff;
 using IitAcademicPortal.Domain.Identity;
 using IitAcademicPortal.Domain.Staff;
@@ -77,6 +78,13 @@ public sealed class StaffStore(PortalDbContext db) : IStaffStore
         var row = await Rows(db.StaffProfiles.AsNoTracking().Where(p => p.Id == profileId)).FirstOrDefaultAsync(cancellationToken);
         return row is null ? null : ToDetail(row);
     }
+
+    // The Designation's current name, even if it was deleted since, as on the staff screens.
+    public Task<MyStaffProfile?> GetOwnProfileAsync(string userId, CancellationToken cancellationToken) =>
+        db.StaffProfiles.AsNoTracking().Where(p => p.UserId == userId)
+            .Select(p => new MyStaffProfile(
+                p.Name, p.MobileNumber, db.Designations.IgnoreQueryFilters().Where(d => d.Id == p.DesignationId).Select(d => d.Name).FirstOrDefault()))
+            .FirstOrDefaultAsync(cancellationToken);
 
     public async Task<StaffListPage> ListAsync(string? normalizedSearch, int page, int pageSize, CancellationToken cancellationToken)
     {

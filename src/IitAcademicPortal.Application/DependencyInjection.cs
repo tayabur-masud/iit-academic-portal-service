@@ -2,6 +2,7 @@ using IitAcademicPortal.Application.Abstractions;
 using IitAcademicPortal.Application.Auditing;
 using IitAcademicPortal.Application.Authentication;
 using IitAcademicPortal.Application.Configuration;
+using IitAcademicPortal.Application.MyProfile;
 using IitAcademicPortal.Application.Notifications;
 using IitAcademicPortal.Application.PasswordRecovery;
 using IitAcademicPortal.Application.Staff;
@@ -50,6 +51,7 @@ public static class DependencyInjection
         services.AddScoped<AccountCredentialSetupService>();
         services.AddScoped<StudentAdmissionService>();
         services.AddScoped<GraduationEligibilityService>();
+        services.AddScoped<MyProfileService>();
 
         // Published credits and CGPA belong to the academic-results owner. Until it registers its adapter, eligibility reports them unavailable.
         services.TryAddScoped<IPublishedAdmissionResultsProvider, UnavailablePublishedAdmissionResultsProvider>();

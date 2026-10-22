@@ -13,4 +13,7 @@ public interface IUserAccountStore
 
     /// <summary>The account with its roles, teacher link, and created/last-modified facts (actor IDs only), or null when unknown.</summary>
     Task<UserAccountDetail?> GetDetailAsync(string userId, CancellationToken cancellationToken);
+
+    /// <summary>The account's current email, or null when the account is unknown.</summary>
+    Task<string?> GetEmailAsync(string userId, CancellationToken cancellationToken);
 }

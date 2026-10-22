@@ -1,3 +1,4 @@
+using IitAcademicPortal.Application.MyProfile;
 using IitAcademicPortal.Application.Students;
 using IitAcademicPortal.Domain.Configuration;
 using IitAcademicPortal.Domain.Students;
@@ -81,6 +82,12 @@ public interface IStudentStore
 
     /// <summary>The profile of an account with its history and every admission, or null when the account has none.</summary>
     Task<StudentProfileDetail?> GetProfileOfUserAsync(string userId, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// The account's own personal profile for My Profile: personal details, addresses with locality names, guardian, and prior education
+    /// in entry order. Admissions are not loaded. Null when the account has no Student profile.
+    /// </summary>
+    Task<MyStudentProfile?> GetOwnProfileAsync(string userId, CancellationToken cancellationToken);
 
     Task<StudentListPage> ListAsync(StudentListFilter filter, int page, int pageSize, CancellationToken cancellationToken);
 }

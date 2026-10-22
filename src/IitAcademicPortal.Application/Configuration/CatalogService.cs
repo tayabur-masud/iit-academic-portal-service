@@ -27,7 +27,7 @@ public sealed class ConfigurationResources
             new NameOnlyResource<AcademicSession>("academic-sessions", "Academic session", "academic-session", () => new AcademicSession(),
                 (session, c, ct) => c.Store.ExistsAsync<Batch>(b => b.AcademicSessionId == session.Id, ct)),
             new CodedResource<Designation>("designations", "Designation", "designation", () => new Designation(),
-                dependents: (designation, c, ct) => c.Store.DesignationInUseByTeacherAsync(designation.Id, ct)),
+                dependents: (designation, c, ct) => c.Store.DesignationInUseAsync(designation.Id, ct)),
             new HallResource(),
             new BatchResource(),
             new CourseResource(),

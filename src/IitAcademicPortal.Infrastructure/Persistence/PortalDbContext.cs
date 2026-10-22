@@ -3,6 +3,7 @@ using IitAcademicPortal.Domain.Auditing;
 using IitAcademicPortal.Domain.Configuration;
 using IitAcademicPortal.Domain.Identity;
 using IitAcademicPortal.Domain.Sessions;
+using IitAcademicPortal.Domain.Staff;
 using IitAcademicPortal.Domain.Students;
 using IitAcademicPortal.Domain.Teachers;
 using Microsoft.AspNetCore.Identity;
@@ -62,6 +63,8 @@ public partial class PortalDbContext(DbContextOptions<PortalDbContext> options) 
     public DbSet<Grade> Grades => Set<Grade>();
 
     public DbSet<TeacherProfile> TeacherProfiles => Set<TeacherProfile>();
+
+    public DbSet<StaffProfile> StaffProfiles => Set<StaffProfile>();
 
     public DbSet<StudentProfile> StudentProfiles => Set<StudentProfile>();
 
@@ -161,6 +164,7 @@ public partial class PortalDbContext(DbContextOptions<PortalDbContext> options) 
 
         ConfigureConfiguration(builder, Database.IsNpgsql());
         ConfigureTeachers(builder);
+        ConfigureStaff(builder);
         ConfigureStudents(builder);
         ConfigureNotifications(builder);
         ConfigureAuditedEntities(builder);
@@ -183,6 +187,27 @@ public partial class PortalDbContext(DbContextOptions<PortalDbContext> options) 
             profile.Property(p => p.Phone).HasMaxLength(TeacherProfile.MaxPhoneLength);
             profile.HasIndex(p => p.UserId).IsUnique();
             profile.HasIndex(p => p.NormalizedEmployeeStaffId).IsUnique().HasFilter("\"NormalizedEmployeeStaffId\" IS NOT NULL");
+            profile.HasIndex(p => p.DesignationId);
+            profile.HasOne<PortalUser>().WithMany().HasForeignKey(p => p.UserId).OnDelete(DeleteBehavior.Restrict);
+            profile.HasOne<Designation>().WithMany().HasForeignKey(p => p.DesignationId).OnDelete(DeleteBehavior.Restrict);
+        });
+
+    /// <summary>
+    /// Staff Management: one profile per Admin account (unique, restrictive) with a required, restrictive Designation and an active flag.
+    /// Roles and credentials stay on the account; the profile stores no verification state or document.
+    /// </summary>
+    private static void ConfigureStaff(ModelBuilder builder) =>
+        builder.Entity<StaffProfile>(profile =>
+        {
+            profile.ToTable("StaffProfiles");
+            profile.HasKey(p => p.Id);
+            profile.Property(p => p.Id).ValueGeneratedNever();
+            profile.Property(p => p.UserId).HasMaxLength(AuditedEntity.MaxUserIdLength).IsRequired();
+            profile.Property(p => p.Name).HasMaxLength(StaffProfile.MaxNameLength).IsRequired();
+            profile.Property(p => p.MobileNumber).HasMaxLength(StaffProfile.MaxMobileNumberLength).IsRequired();
+            profile.Property(p => p.DesignationId).IsRequired();
+            profile.Property(p => p.IsActive).IsRequired();
+            profile.HasIndex(p => p.UserId).IsUnique();
             profile.HasIndex(p => p.DesignationId);
             profile.HasOne<PortalUser>().WithMany().HasForeignKey(p => p.UserId).OnDelete(DeleteBehavior.Restrict);
             profile.HasOne<Designation>().WithMany().HasForeignKey(p => p.DesignationId).OnDelete(DeleteBehavior.Restrict);

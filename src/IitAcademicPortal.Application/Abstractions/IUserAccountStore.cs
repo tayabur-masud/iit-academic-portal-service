@@ -1,3 +1,4 @@
+using IitAcademicPortal.Application.MyProfile;
 using IitAcademicPortal.Application.UserManagement;
 
 namespace IitAcademicPortal.Application.Abstractions;
@@ -16,4 +17,7 @@ public interface IUserAccountStore
 
     /// <summary>The account's current email, or null when the account is unknown.</summary>
     Task<string?> GetEmailAsync(string userId, CancellationToken cancellationToken);
+
+    /// <summary>The account's email and the name on each of its profiles (null where it has none) in one read, or null when the account is unknown.</summary>
+    Task<AccountNames?> GetNamesAsync(string userId, CancellationToken cancellationToken);
 }

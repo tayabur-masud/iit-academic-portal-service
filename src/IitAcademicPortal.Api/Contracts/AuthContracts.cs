@@ -45,9 +45,14 @@ public sealed class PasswordResetCompletion
     public string NewPassword { get; init; } = string.Empty;
 }
 
-public sealed record SessionContextResponse(IReadOnlyList<string> AvailableRoles, string? ActiveRole)
+/// <summary>
+/// The session's roles and the name the account menu shows for the signed-in account: its active role's profile name, another of its
+/// profile names, or its email (see <c>MyProfileService.GetDisplayNameAsync</c>). Only the signed-in account's own name is returned.
+/// </summary>
+public sealed record SessionContextResponse(IReadOnlyList<string> AvailableRoles, string? ActiveRole, string? DisplayName)
 {
-    public static SessionContextResponse From(SessionContext context) => new(context.AvailableRoles, context.ActiveRole);
+    public static SessionContextResponse From(SessionContext context, string? displayName) =>
+        new(context.AvailableRoles, context.ActiveRole, displayName);
 }
 
 public sealed record AntiForgeryTokenResponse(string RequestToken);

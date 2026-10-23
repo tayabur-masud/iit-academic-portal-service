@@ -1,4 +1,5 @@
 using IitAcademicPortal.Application.Abstractions;
+using IitAcademicPortal.Application.MyProfile;
 using IitAcademicPortal.Application.Auditing;
 using IitAcademicPortal.Application.UserManagement;
 using IitAcademicPortal.Domain.Identity;
@@ -41,6 +42,15 @@ public sealed class UserAccountStore(PortalDbContext db) : IUserAccountStore
 
     public Task<string?> GetEmailAsync(string userId, CancellationToken cancellationToken) =>
         db.Users.AsNoTracking().Where(u => u.Id == userId).Select(u => u.Email).FirstOrDefaultAsync(cancellationToken);
+
+    public Task<AccountNames?> GetNamesAsync(string userId, CancellationToken cancellationToken) =>
+        db.Users.AsNoTracking().Where(u => u.Id == userId)
+            .Select(u => new AccountNames(
+                u.Email,
+                db.StaffProfiles.Where(p => p.UserId == u.Id).Select(p => p.Name).FirstOrDefault(),
+                db.TeacherProfiles.Where(p => p.UserId == u.Id).Select(p => p.DisplayName).FirstOrDefault(),
+                db.StudentProfiles.Where(p => p.UserId == u.Id).Select(p => p.ApplicantName).FirstOrDefault()))
+            .FirstOrDefaultAsync(cancellationToken);
 
     public async Task<UserAccountDetail?> GetDetailAsync(string userId, CancellationToken cancellationToken)
     {

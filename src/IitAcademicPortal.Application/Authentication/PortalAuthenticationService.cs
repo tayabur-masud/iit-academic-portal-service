@@ -9,7 +9,7 @@ using Microsoft.Extensions.Logging;
 
 namespace IitAcademicPortal.Application.Authentication;
 
-public sealed record SignInOutcome(bool Succeeded, string? SessionHandle, SessionContext? Context)
+public sealed record SignInOutcome(bool Succeeded, string? SessionHandle, SessionContext? Context, string? UserId = null)
 {
     public static SignInOutcome Failed { get; } = new(false, null, null);
 }
@@ -79,7 +79,7 @@ public sealed class PortalAuthenticationService(
             EntityId = session.Id.ToString(),
             Metadata = new Dictionary<string, object?> { ["activeRole"] = activeRole },
         });
-        return new SignInOutcome(true, handle, new SessionContext(roles, activeRole));
+        return new SignInOutcome(true, handle, new SessionContext(roles, activeRole), user.Id);
     }
 
     // A failed attempt records no account: the actor is null and the submitted email is never kept. Unknown

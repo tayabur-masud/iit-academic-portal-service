@@ -119,6 +119,9 @@ AND    EXISTS (SELECT 1 FROM "AspNetUserRoles" ur JOIN "AspNetRoles" r ON r."Id"
 - **Sessions end after three hours without authenticated activity.** Each authenticated request refreshes the
   window, and an idle session is revoked on its next use. Sign-out revokes only the current session; a password
   reset revokes only the session that performed it.
+- Every session response (sign-in, `GET /api/auth/sessions/current`, and the role switch) includes `displayName`, the account menu's
+  name: the active role's profile name, otherwise another of the account's profile names (Staff, Teacher, Student), otherwise the
+  email. `MyProfileService.GetDisplayNameAsync` resolves it from one read (`IUserAccountStore.GetNamesAsync`); it is never stored.
 - Each session starts in the account's default role (`AspNetUsers.DefaultRole` while assigned, otherwise the
   first assigned role in the order Admin, Coordinator, Teacher, Student).
 - Only an account whose `AccountStatus` is `Active` can sign in or keep using a session. Accounts that existed before the column are `Active`; Teacher Management creates accounts as `PendingCredentialSetup` (no password, no email; they cannot sign in until a later credential-setup feature) and deactivation sets `Deactivated` and revokes every active session. A refused sign-in looks exactly like a wrong password.

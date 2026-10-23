@@ -10,7 +10,7 @@ using IitAcademicPortal.Domain.Teachers;
 namespace IitAcademicPortal.Api.Tests.Profiles;
 
 /// <summary>
-/// My Profile (<c>GET /api/profile</c>): every supported active role sees its own account email and the one profile that role reads
+/// My Profile (<c>GET /api/profile</c>), and the account name the session reports for the account menu: every supported active role sees its own account email and the one profile that role reads
 /// (Admin the Staff profile, Student the Student profile, Teacher and Coordinator the Teacher profile), taken only from the session.
 /// A missing profile is reported as none, never replaced by another role's; the response is an allowlist with no identifiers, account
 /// state, audit facts, admissions, or credentials; and there is no write.
@@ -62,6 +62,13 @@ public sealed class MyProfileTests : StudentTestBase
         SendAsync(client, HttpMethod.Get, Profile + query);
 
     private static List<string> Keys(JsonElement element) => element.EnumerateObject().Select(p => p.Name).Order().ToList();
+
+    private static async Task<string?> SessionNameAsync(PortalClient client)
+    {
+        using var response = await client.GetCurrentSessionAsync();
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        return (await PortalClient.ReadJsonAsync(response)).GetProperty("displayName").GetString();
+    }
 
     [Fact]
     public async Task An_anonymous_request_is_refused()
@@ -364,5 +371,54 @@ public sealed class MyProfileTests : StudentTestBase
         }
 
         Assert.Empty(profile.GetProperty("academicHistory").EnumerateArray());
+    }
+
+    [Fact]
+    public async Task Sign_in_the_current_session_and_a_role_switch_report_the_active_roles_profile_name()
+    {
+        var email = PortalApiFactory.UniqueEmail("named");
+        var userId = await Host.CreateUserAsync(email, PortalRoles.Admin, PortalRoles.Teacher);
+        var (designation, _) = await DesignationAsync("Lecturer");
+        await StaffProfileAsync(userId, "Farhana Akter", "01711000000", designation);
+        await TeacherProfileAsync(userId, "Dr Farhana Akter", null, null, designation);
+        using var client = Host.CreatePortalClient();
+
+        using var signIn = await client.SignInAsync(email);
+        var signedIn = await PortalClient.ReadJsonAsync(signIn);
+
+        Assert.Equal(HttpStatusCode.Created, signIn.StatusCode);
+        Assert.Equal(["activeRole", "availableRoles", "displayName"], Keys(signedIn));
+        Assert.Equal(PortalRoles.Admin, signedIn.GetProperty("activeRole").GetString());
+        Assert.Equal("Farhana Akter", signedIn.GetProperty("displayName").GetString());
+        Assert.Equal("Farhana Akter", await SessionNameAsync(client));
+
+        using var switched = await client.SetActiveRoleAsync(PortalRoles.Teacher);
+        Assert.Equal(HttpStatusCode.OK, switched.StatusCode);
+        Assert.Equal("Dr Farhana Akter", (await PortalClient.ReadJsonAsync(switched)).GetProperty("displayName").GetString());
+        Assert.Equal("Dr Farhana Akter", await SessionNameAsync(client));
+    }
+
+    [Fact]
+    public async Task The_session_name_falls_back_to_another_profile_then_to_the_email_and_follows_profile_changes()
+    {
+        var withOtherProfile = await SignedInAsMeAsync(PortalRoles.Admin, PortalRoles.Teacher);
+        await TeacherProfileAsync(withOtherProfile.UserId, "Only Teacher Name", null, null, null);
+        Assert.Equal(HttpStatusCode.OK, (await withOtherProfile.Client.SetActiveRoleAsync(PortalRoles.Admin)).StatusCode);
+        Assert.Equal("Only Teacher Name", await SessionNameAsync(withOtherProfile.Client));
+
+        var withoutProfile = await SignedInAsMeAsync(PortalRoles.Student);
+        Assert.Equal(withoutProfile.Email, await SessionNameAsync(withoutProfile.Client));
+
+        var withoutRole = await SignedInAsMeAsync();
+        Assert.Equal(withoutRole.Email, await SessionNameAsync(withoutRole.Client));
+
+        await Host.WithDbAsync(async db =>
+        {
+            var profile = TeacherProfile.Create(withoutProfile.UserId);
+            profile.Update("Added Later", null, null, null);
+            db.TeacherProfiles.Add(profile);
+            await db.SaveChangesAsync();
+        });
+        Assert.Equal("Added Later", await SessionNameAsync(withoutProfile.Client));
     }
 }

@@ -2,6 +2,8 @@ using IitAcademicPortal.Api.Authentication;
 using IitAcademicPortal.Api.Contracts;
 using IitAcademicPortal.Api.Security;
 using IitAcademicPortal.Application.Authentication;
+using IitAcademicPortal.Application.MyProfile;
+using IitAcademicPortal.Application.Sessions;
 using IitAcademicPortal.Domain.Identity;
 using IitAcademicPortal.Domain.Sessions;
 using Microsoft.AspNetCore.Authorization;
@@ -12,7 +14,8 @@ namespace IitAcademicPortal.Api.Controllers;
 
 [ApiController]
 [Route("api/auth/sessions")]
-public sealed class SessionsController(PortalAuthenticationService authentication, TimeProvider timeProvider) : ControllerBase
+public sealed class SessionsController(PortalAuthenticationService authentication, MyProfileService profiles, TimeProvider timeProvider)
+    : ControllerBase
 {
     [HttpPost]
     [AllowAnonymous]
@@ -37,14 +40,12 @@ public sealed class SessionsController(PortalAuthenticationService authenticatio
         }
 
         SessionCookie.Write(Response, outcome.SessionHandle!, timeProvider.GetUtcNow());
-        return Created("/api/auth/sessions/current", SessionContextResponse.From(outcome.Context!));
+        return Created("/api/auth/sessions/current", await ResponseAsync(outcome.UserId!, outcome.Context!, cancellationToken));
     }
 
     [HttpGet("current")]
-    public ActionResult<SessionContextResponse> GetCurrent()
-    {
-        return SessionContextResponse.From(User.GetSessionContext());
-    }
+    public async Task<ActionResult<SessionContextResponse>> GetCurrent(CancellationToken cancellationToken) =>
+        await ResponseAsync(User.GetUserId(), User.GetSessionContext(), cancellationToken);
 
     /// <summary>Signs out by revoking only the current session.</summary>
     [HttpDelete("current")]
@@ -67,7 +68,7 @@ public sealed class SessionsController(PortalAuthenticationService authenticatio
         var outcome = await authentication.SetActiveRoleAsync(User.GetSessionId()!.Value, request.Role, cancellationToken);
         return outcome.Status switch
         {
-            SetActiveRoleStatus.Updated => SessionContextResponse.From(outcome.Context!),
+            SetActiveRoleStatus.Updated => await ResponseAsync(User.GetUserId(), outcome.Context!, cancellationToken),
             SetActiveRoleStatus.RoleNotAssigned => Problem(
                 statusCode: StatusCodes.Status403Forbidden,
                 title: "Role not available",
@@ -78,4 +79,7 @@ public sealed class SessionsController(PortalAuthenticationService authenticatio
                 detail: "Sign in to continue."),
         };
     }
+
+    private async Task<SessionContextResponse> ResponseAsync(string userId, SessionContext context, CancellationToken cancellationToken) =>
+        SessionContextResponse.From(context, await profiles.GetDisplayNameAsync(userId, context.ActiveRole, cancellationToken));
 }

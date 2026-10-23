@@ -56,6 +56,9 @@ public sealed record MyAcademicHistoryEntry(
     string? Class,
     string? Division);
 
+/// <summary>The account's email and the name on each of its profiles; a name is null when the account has no such profile.</summary>
+public sealed record AccountNames(string? Email, string? StaffName, string? TeacherName, string? StudentName);
+
 public enum MyProfileOutcome
 {
     Ok,
